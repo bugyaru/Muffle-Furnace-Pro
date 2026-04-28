@@ -1,0 +1,78 @@
+/* ============================================================
+   Furnace Pro - Multi-Theme Stylesheet
+   ============================================================ */
+:root {
+  /* Огненная (по умолчанию) */
+  --bg-grad: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+  --panel-bg: rgba(255, 255, 255, 0.08);
+  --text-main: #eeeeee;
+  --accent: #ffd700;
+  --border: rgba(255, 255, 255, 0.15);
+  --btn-pri: #c15900;
+  --btn-dng: #F44336;
+  --btn-info: #534480;
+}
+
+body.theme-green {
+  --bg-grad: linear-gradient(135deg, #051405 0%, #0a2a0a 100%);
+  --panel-bg: rgba(0, 255, 0, 0.05);
+  --text-main: #00ff00;
+  --accent: #00ff00;
+  --border: rgba(0, 255, 0, 0.2);
+  --btn-pri: #4CAF50;
+  --btn-dng: #d32f2f;
+  --btn-info: #216c31;
+}
+
+body.theme-red {
+  --bg-grad: linear-gradient(135deg, #1a0000 0%, #330000 100%);
+  --panel-bg: rgba(255, 0, 0, 0.05);
+  --text-main: #ff4d4d;
+  --accent: #ff0000;
+  --border: rgba(255, 0, 0, 0.2);
+  --btn-pri: #F44336;
+  --btn-dng: #B71C1C;
+  --btn-info: #d70000;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; transition: background 0.3s ease, color 0.3s ease, border-color 0.3s ease; }
+body { font-family: 'Segoe UI', sans-serif; background: var(--bg-grad); color: var(--text-main); padding: 20px; min-height: 100vh; }
+
+.container { max-width: 900px; margin: 0 auto; background: var(--panel-bg); border-radius: 15px; padding: 25px; backdrop-filter: blur(10px); border: 1px solid var(--border); }
+h1, h2 { color: var(--accent); text-align: center; margin-bottom: 15px; }
+.panel { background: rgba(0,0,0,0.2); border-radius: 10px; padding: 15px; margin: 10px 0; border: 1px solid var(--border); }
+
+.temp-display { font-size: 42px; font-weight: bold; text-align: center; color: var(--accent); margin: 10px 0; text-shadow: 0 0 10px var(--accent); }
+.info-row { display: flex; justify-content: space-between; padding: 8px 0; border-bottom: 1px solid var(--border); }
+.info-row:last-child { border-bottom: none; }
+
+label { display: block; margin: 10px 0 5px; font-weight: 600; }
+input, select, textarea { width: 100%; padding: 10px; border: 1px solid var(--border); border-radius: 5px; background: rgba(0,0,0,0.3); color: var(--text-main); font-size: 14px; margin: 5px 0; }
+textarea { min-height: 60px; resize: vertical; }
+
+/* Theme Switcher */
+.theme-bar { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 10px; align-items: center; }
+.theme-bar label { margin: 0; font-size: 12px; }
+.theme-bar select { width: 140px; padding: 6px; margin: 0; }
+
+button { width: 100%; padding: 12px; margin: 5px 0; border: none; border-radius: 5px; font-weight: 600; cursor: pointer; color: #fff; background: var(--btn-pri); transition: transform 0.2s, opacity 0.2s; }
+button:hover { transform: translateY(-2px); opacity: 0.9; }
+.btn-danger { background: var(--btn-dng); }
+.btn-info { background: var(--btn-info);; }
+
+.program-list { max-height: 300px; overflow-y: auto; margin: 10px 0; }
+.program-item { background: rgba(255,255,255,0.05); padding: 10px; margin: 5px 0; border-radius: 8px; display: flex; justify-content: space-between; align-items: center; border: 1px solid var(--border); }
+.program-actions button { width: auto; padding: 5px 10px; margin: 0 2px; font-size: 12px; }
+
+.chart-container { position: relative; width: 100%; height: 300px; margin-top: 10px; background: rgba(0,0,0,0.2); border-radius: 8px; padding: 10px; }
+#tempChart { width: 100% !important; height: 100% !important; }
+
+.modal { display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; justify-content: center; align-items: center; }
+.modal-content { background: #16213e; padding: 25px; border-radius: 12px; max-width: 500px; width: 90%; max-height: 80vh; overflow-y: auto; border: 1px solid var(--accent); }
+.close-modal { float: right; font-size: 28px; cursor: pointer; color: var(--text-main); }
+.close-modal:hover { color: var(--accent); }
+
+.status-on { color: #4CAF50; font-weight: bold; }
+.status-off { color: var(--btn-dng); font-weight: bold; }
+
+@media (max-width: 600px) { .container { padding: 15px; } .temp-display { font-size: 32px; } .chart-container { height: 250px; } }

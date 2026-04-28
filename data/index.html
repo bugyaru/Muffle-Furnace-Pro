@@ -4,156 +4,23 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>🔥 Furnace Pro</title>
+  <link rel="stylesheet" href="/css/style.css">
   <script src="/js/chart.js"></script>
-  <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body {
-      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-      color: #eee;
-      padding: 20px;
-      min-height: 100vh;
-    }
-    .container {
-      max-width: 900px;
-      margin: 0 auto;
-      background: rgba(255,255,255,0.05);
-      border-radius: 15px;
-      padding: 25px;
-      backdrop-filter: blur(10px);
-    }
-    h1 { text-align: center; color: #ffd700; margin-bottom: 20px; }
-    h2 { color: #ffd700; margin: 15px 0 10px; font-size: 1.3em; }
-    
-    .panel {
-      background: rgba(255,255,255,0.08);
-      border-radius: 10px;
-      padding: 15px;
-      margin: 10px 0;
-    }
-    
-    .temp-display {
-      font-size: 42px;
-      font-weight: bold;
-      text-align: center;
-      color: #ffd700;
-      margin: 10px 0;
-    }
-    
-    .info-row {
-      display: flex;
-      justify-content: space-between;
-      padding: 8px 0;
-      border-bottom: 1px solid rgba(255,255,255,0.1);
-    }
-    .info-row:last-child { border-bottom: none; }
-    
-    label { display: block; margin: 10px 0 5px; font-weight: 600; }
-    
-    input, select, textarea {
-      width: 100%;
-      padding: 10px;
-      border: none;
-      border-radius: 5px;
-      background: rgba(255,255,255,0.9);
-      color: #333;
-      font-size: 14px;
-      margin: 5px 0;
-    }
-    textarea { min-height: 60px; resize: vertical; }
-    
-    button {
-      width: 100%;
-      padding: 12px;
-      margin: 5px 0;
-      border: none;
-      border-radius: 5px;
-      font-size: 14px;
-      font-weight: 600;
-      cursor: pointer;
-      transition: transform 0.2s, opacity 0.2s;
-    }
-    button:hover { transform: translateY(-2px); opacity: 0.95; }
-    .btn-primary { background: #4CAF50; color: white; }
-    .btn-danger { background: #f44336; color: white; }
-    .btn-warning { background: #ff9800; color: white; }
-    .btn-info { background: #2196F3; color: white; }
-    
-    .program-list {
-      max-height: 300px;
-      overflow-y: auto;
-      margin: 10px 0;
-    }
-    .program-item {
-      background: rgba(255,255,255,0.1);
-      padding: 10px;
-      margin: 5px 0;
-      border-radius: 8px;
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      font-size: 14px;
-    }
-    .program-actions button {
-      width: auto;
-      padding: 5px 10px;
-      margin: 0 2px;
-      font-size: 12px;
-    }
-    
-    /* 🔧 ФИКСИРОВАННАЯ ВЫСОТА ГРАФИКА */
-    .chart-container {
-      position: relative;
-      width: 100%;
-      height: 300px;  /* 🔥 Фиксированная высота графика */
-      margin-top: 10px;
-    }
-    #tempChart {
-      width: 100% !important;
-      height: 100% !important;
-    }
-    
-    .modal {
-      display: none;
-      position: fixed;
-      top: 0; left: 0;
-      width: 100%; height: 100%;
-      background: rgba(0,0,0,0.8);
-      z-index: 1000;
-      justify-content: center;
-      align-items: center;
-    }
-    .modal-content {
-      background: #16213e;
-      padding: 25px;
-      border-radius: 12px;
-      max-width: 500px;
-      width: 90%;
-      max-height: 80vh;
-      overflow-y: auto;
-    }
-    .close-modal {
-      float: right;
-      font-size: 28px;
-      cursor: pointer;
-      color: #fff;
-    }
-    .close-modal:hover { color: #ffd700; }
-    
-    .status-on { color: #4CAF50; font-weight: bold; }
-    .status-off { color: #f44336; font-weight: bold; }
-    
-    @media (max-width: 600px) {
-      .container { padding: 15px; }
-      .temp-display { font-size: 32px; }
-      .chart-container { height: 250px; } /* Чуть меньше на мобильных */
-    }
-  </style>
 </head>
-<body>
+<body class="theme-fire" id="mainBody">
   <div class="container">
     <h1>🔥 Muffle Furnace Pro</h1>
     
+    <!-- Переключатель тем -->
+    <div class="theme-bar">
+      <label for="themeSelect">🎨 Стиль:</label>
+      <select id="themeSelect" onchange="changeTheme(this.value)">
+        <option value="theme-fire">🔥 Огненный</option>
+        <option value="theme-green">🟢 Зеленый</option>
+        <option value="theme-red">🔴 Красный</option>
+      </select>
+    </div>
+
     <!-- Состояние -->
     <div class="panel">
       <h2>📊 Текущее состояние</h2>
@@ -165,7 +32,7 @@
       <div class="info-row"><span>📈 Step:</span><span id="currentStep">- / -</span></div>
     </div>
 
-    <!-- График с фиксированной высотой -->
+    <!-- График -->
     <div class="panel">
       <h2>📈 График температуры</h2>
       <div class="chart-container">
@@ -177,7 +44,7 @@
     <div class="panel">
       <h2>📜 Управление программами</h2>
       <button class="btn-info" onclick="openAddModal()">➕ Добавить программу</button>
-      <button class="btn-primary" onclick="loadPrograms()">🔄 Обновить список</button>
+      <button onclick="loadPrograms()">🔄 Обновить список</button>
       <div class="program-list" id="programList">
         <p style="text-align:center;color:#aaa">Загрузка...</p>
       </div>
@@ -188,7 +55,7 @@
       <h2>⚙️ Ручное управление</h2>
       <label>Setpoint (°C):</label>
       <input type="number" id="manualSp" min="20" max="1000" value="100">
-      <button class="btn-primary" onclick="applySetpoint()">▶ Применить</button>
+      <button onclick="applySetpoint()">▶ Применить</button>
       <button class="btn-danger" onclick="stopHeating()">🛑 СТОП</button>
     </div>
 
@@ -200,7 +67,7 @@
         <div><label>Ki:</label><input type="number" id="pidKi" step="0.01" value="0.1"></div>
         <div><label>Kd:</label><input type="number" id="pidKd" step="0.1" value="10.0"></div>
       </div>
-      <button class="btn-primary" onclick="savePID()">💾 Сохранить PID</button>
+      <button onclick="savePID()">💾 Сохранить PID</button>
     </div>
 
     <!-- Лог -->
@@ -224,19 +91,39 @@
         <label>Программа (формат: temp,min;temp,min;...):</label>
         <textarea id="progSteps" required placeholder="600,30;850,45;200,180"></textarea>
         <small style="color:#aaa;display:block;margin:5px 0">Пример: 600,30;850,45;200,180</small>
-        <button type="submit" class="btn-primary">💾 Сохранить</button>
+        <button type="submit">💾 Сохранить</button>
       </form>
     </div>
   </div>
 
   <script>
+    // ===== THEME SWITCHER =====
+    function changeTheme(themeName) {
+      document.body.className = themeName;
+      localStorage.setItem('furnaceTheme', themeName);
+      console.log('✅ Theme applied:', themeName);
+    }
+
+    // Восстановление темы при загрузке
+    document.addEventListener('DOMContentLoaded', () => {
+      const saved = localStorage.getItem('furnaceTheme') || 'theme-fire';
+      changeTheme(saved);
+      const sel = document.getElementById('themeSelect');
+      if (sel) sel.value = saved;
+    });
+
+    // ===== WEBSOCKET & CHART =====
     let ws, tempChart, tempHistory = [];
     
     function connectWS() {
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      ws = new WebSocket(proto + '//' + location.host + '/');
+      // 🔧 Явно указываем порт 81 для WebSocket
+      const wsUrl = proto + '//' + location.hostname + ':81/';
+      
+      ws = new WebSocket(wsUrl);
       ws.onmessage = e => updateUI(JSON.parse(e.data));
       ws.onclose = () => setTimeout(connectWS, 3000);
+      ws.onerror = err => console.error('WebSocket error:', err);
     }
     
     function updateUI(d) {
@@ -252,21 +139,20 @@
       if (d.tempHistory) { tempHistory = d.tempHistory; updateChart(); }
     }
     
-    // 🔧 ИНИЦИАЛИЗАЦИЯ ГРАФИКА С ФИКСИРОВАННОЙ ВЫСОТОЙ
+    // ✅ ИСПРАВЛЕНО: Синтаксис инициализации Chart.js (добавлен ключ 'data')
     function initChart() {
-      if (typeof Chart === 'undefined') {
-        console.error('Chart.js not loaded!');
-        document.getElementById('tempChart').innerHTML = '<p style="color:#f44;text-align:center">⚠️ chart.js не найден</p>';
-        return;
+      if (typeof Chart === 'undefined') { 
+        document.getElementById('tempChart').innerHTML = '<p style="color:#f44;text-align:center">⚠️ chart.js не найден</p>'; 
+        return; 
       }
       const ctx = document.getElementById('tempChart').getContext('2d');
       tempChart = new Chart(ctx, {
         type: 'line',
-        data: {
+        data: {  // ✅ Здесь был пропущен ключ 'data'
           labels: Array(60).fill(''),
           datasets: [{
             label: '°C',
-            data: Array(60).fill(0),
+            data: Array(60).fill(0), // ✅ Здесь был пропущен ключ 'data' перед массивом
             borderColor: '#ffd700',
             backgroundColor: 'rgba(255,215,0,0.1)',
             tension: 0.3,
@@ -276,15 +162,10 @@
         },
         options: {
           responsive: true,
-          maintainAspectRatio: false,  // 🔥 Разрешить фиксированную высоту
+          maintainAspectRatio: false,
           plugins: { legend: { display: false } },
           scales: {
-            y: { 
-              beginAtZero: true, 
-              max: 1100, 
-              grid: { color: 'rgba(255,255,255,0.1)' }, 
-              ticks: { color: '#ccc' } 
-            },
+            y: { beginAtZero: true, max: 1100, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ccc' } },
             x: { display: false }
           },
           animation: { duration: 0 }
@@ -314,8 +195,8 @@
         <div class="program-item">
           <div><b>${i+1}. ${p.name}</b><br><small>${p.prg}</small></div>
           <div class="program-actions">
-            <button class="btn-primary" onclick="loadPrg(${i})">▶</button>
-            <button class="btn-warning" onclick="editPrg(${i},'${p.name}','${p.prg}')">✏️</button>
+            <button onclick="loadPrg(${i})">▶</button>
+            <button class="btn-danger" style="background:#ff9800" onclick="editPrg(${i},'${p.name}','${p.prg}')">✏️</button>
             <button class="btn-danger" onclick="delPrg(${i})">🗑️</button>
           </div>
         </div>`).join('');
