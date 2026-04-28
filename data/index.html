@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>🔥 Furnace Pro</title>
+  <script src="/js/chart.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      color: #eee;
+      padding: 20px;
+      min-height: 100vh;
+    }
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      background: rgba(255,255,255,0.05);
+      border-radius: 15px;
+      padding: 25px;
+      backdrop-filter: blur(10px);
+    }
+    h1 { text-align: center; color: #ffd700; margin-bottom: 20px; }
+    h2 { color: #ffd700; margin: 15px 0 10px; font-size: 1.3em; }
+    
+    .panel {
+      background: rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 15px;
+      margin: 10px 0;
+    }
+    
+    .temp-display {
+      font-size: 42px;
+      font-weight: bold;
+      text-align: center;
+      color: #ffd700;
+      margin: 10px 0;
+    }
+    
+    .info-row {
+      display: flex;
+      justify-content: space-between;
+      padding: 8px 0;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .info-row:last-child { border-bottom: none; }
+    
+    label { display: block; margin: 10px 0 5px; font-weight: 600; }
+    
+    input, select, textarea {
+      width: 100%;
+      padding: 10px;
+      border: none;
+      border-radius: 5px;
+      background: rgba(255,255,255,0.9);
+      color: #333;
+      font-size: 14px;
+      margin: 5px 0;
+    }
+    textarea { min-height: 60px; resize: vertical; }
+    
+    button {
+      width: 100%;
+      padding: 12px;
+      margin: 5px 0;
+      border: none;
+      border-radius: 5px;
+      font-size: 14px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, opacity 0.2s;
+    }
+    button:hover { transform: translateY(-2px); opacity: 0.95; }
+    .btn-primary { background: #4CAF50; color: white; }
+    .btn-danger { background: #f44336; color: white; }
+    .btn-warning { background: #ff9800; color: white; }
+    .btn-info { background: #2196F3; color: white; }
+    
+    .program-list {
+      max-height: 300px;
+      overflow-y: auto;
+      margin: 10px 0;
+    }
+    .program-item {
+      background: rgba(255,255,255,0.1);
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 8px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 14px;
+    }
+    .program-actions button {
+      width: auto;
+      padding: 5px 10px;
+      margin: 0 2px;
+      font-size: 12px;
+    }
+    
+    /* 🔧 ФИКСИРОВАННАЯ ВЫСОТА ГРАФИКА */
+    .chart-container {
+      position: relative;
+      width: 100%;
+      height: 300px;  /* 🔥 Фиксированная высота графика */
+      margin-top: 10px;
+    }
+    #tempChart {
+      width: 100% !important;
+      height: 100% !important;
+    }
+    
+    .modal {
+      display: none;
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.8);
+      z-index: 1000;
+      justify-content: center;
+      align-items: center;
+    }
+    .modal-content {
+      background: #16213e;
+      padding: 25px;
+      border-radius: 12px;
+      max-width: 500px;
+      width: 90%;
+      max-height: 80vh;
+      overflow-y: auto;
+    }
+    .close-modal {
+      float: right;
+      font-size: 28px;
+      cursor: pointer;
+      color: #fff;
+    }
+    .close-modal:hover { color: #ffd700; }
+    
+    .status-on { color: #4CAF50; font-weight: bold; }
+    .status-off { color: #f44336; font-weight: bold; }
+    
+    @media (max-width: 600px) {
+      .container { padding: 15px; }
+      .temp-display { font-size: 32px; }
+      .chart-container { height: 250px; } /* Чуть меньше на мобильных */
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔥 Muffle Furnace Pro</h1>
+    
+    <!-- Состояние -->
+    <div class="panel">
+      <h2>📊 Текущее состояние</h2>
+      <div class="temp-display"><span id="currentTemp">--.-</span> °C</div>
+      <div class="info-row"><span>🎯 Setpoint:</span><span id="setpoint">--.- °C</span></div>
+      <div class="info-row"><span>⚡ Output:</span><span id="output">--%</span></div>
+      <div class="info-row"><span>🔌 SSR:</span><span id="ssrState" class="status-off">OFF</span></div>
+      <div class="info-row"><span>📋 Mode:</span><span id="mode">STANDBY</span></div>
+      <div class="info-row"><span>📈 Step:</span><span id="currentStep">- / -</span></div>
+    </div>
+
+    <!-- График с фиксированной высотой -->
+    <div class="panel">
+      <h2>📈 График температуры</h2>
+      <div class="chart-container">
+        <canvas id="tempChart"></canvas>
+      </div>
+    </div>
+
+    <!-- Программы -->
+    <div class="panel">
+      <h2>📜 Управление программами</h2>
+      <button class="btn-info" onclick="openAddModal()">➕ Добавить программу</button>
+      <button class="btn-primary" onclick="loadPrograms()">🔄 Обновить список</button>
+      <div class="program-list" id="programList">
+        <p style="text-align:center;color:#aaa">Загрузка...</p>
+      </div>
+    </div>
+
+    <!-- Ручное управление -->
+    <div class="panel">
+      <h2>⚙️ Ручное управление</h2>
+      <label>Setpoint (°C):</label>
+      <input type="number" id="manualSp" min="20" max="1000" value="100">
+      <button class="btn-primary" onclick="applySetpoint()">▶ Применить</button>
+      <button class="btn-danger" onclick="stopHeating()">🛑 СТОП</button>
+    </div>
+
+    <!-- PID -->
+    <div class="panel">
+      <h2>🔧 Настройки PID</h2>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+        <div><label>Kp:</label><input type="number" id="pidKp" step="0.1" value="50.0"></div>
+        <div><label>Ki:</label><input type="number" id="pidKi" step="0.01" value="0.1"></div>
+        <div><label>Kd:</label><input type="number" id="pidKd" step="0.1" value="10.0"></div>
+      </div>
+      <button class="btn-primary" onclick="savePID()">💾 Сохранить PID</button>
+    </div>
+
+    <!-- Лог -->
+    <div class="panel">
+      <h2>📊 Логирование</h2>
+      <div class="info-row"><span>Размер:</span><span id="logSize">...</span></div>
+      <button class="btn-info" onclick="downloadLog()">⬇️ Скачать CSV</button>
+      <button class="btn-danger" onclick="clearLog()">🗑️ Очистить</button>
+    </div>
+  </div>
+
+  <!-- Модальное окно -->
+  <div id="progModal" class="modal">
+    <div class="modal-content">
+      <span class="close-modal" onclick="closeModal()">&times;</span>
+      <h2 id="modalTitle">Добавить программу</h2>
+      <form onsubmit="saveProgram(event)">
+        <input type="hidden" id="progId" value="-1">
+        <label>Название:</label>
+        <input type="text" id="progName" required placeholder="Например: Отжиг стали">
+        <label>Программа (формат: temp,min;temp,min;...):</label>
+        <textarea id="progSteps" required placeholder="600,30;850,45;200,180"></textarea>
+        <small style="color:#aaa;display:block;margin:5px 0">Пример: 600,30;850,45;200,180</small>
+        <button type="submit" class="btn-primary">💾 Сохранить</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let ws, tempChart, tempHistory = [];
+    
+    function connectWS() {
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      ws = new WebSocket(proto + '//' + location.host + '/');
+      ws.onmessage = e => updateUI(JSON.parse(e.data));
+      ws.onclose = () => setTimeout(connectWS, 3000);
+    }
+    
+    function updateUI(d) {
+      document.getElementById('currentTemp').textContent = d.temp.toFixed(1);
+      document.getElementById('setpoint').textContent = d.setpoint.toFixed(1) + ' °C';
+      document.getElementById('output').textContent = d.output.toFixed(0) + '%';
+      const ssr = document.getElementById('ssrState');
+      ssr.textContent = d.ssr ? 'ON' : 'OFF';
+      ssr.className = d.ssr ? 'status-on' : 'status-off';
+      document.getElementById('mode').textContent = d.mode;
+      document.getElementById('currentStep').textContent = 
+        d.programSteps > 0 ? (d.currentStep+1) + ' / ' + d.programSteps : '- / -';
+      if (d.tempHistory) { tempHistory = d.tempHistory; updateChart(); }
+    }
+    
+    // 🔧 ИНИЦИАЛИЗАЦИЯ ГРАФИКА С ФИКСИРОВАННОЙ ВЫСОТОЙ
+    function initChart() {
+      if (typeof Chart === 'undefined') {
+        console.error('Chart.js not loaded!');
+        document.getElementById('tempChart').innerHTML = '<p style="color:#f44;text-align:center">⚠️ chart.js не найден</p>';
+        return;
+      }
+      const ctx = document.getElementById('tempChart').getContext('2d');
+      tempChart = new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: Array(60).fill(''),
+          datasets: [{
+            label: '°C',
+            data: Array(60).fill(0),
+            borderColor: '#ffd700',
+            backgroundColor: 'rgba(255,215,0,0.1)',
+            tension: 0.3,
+            fill: true,
+            pointRadius: 0
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,  // 🔥 Разрешить фиксированную высоту
+          plugins: { legend: { display: false } },
+          scales: {
+            y: { 
+              beginAtZero: true, 
+              max: 1100, 
+              grid: { color: 'rgba(255,255,255,0.1)' }, 
+              ticks: { color: '#ccc' } 
+            },
+            x: { display: false }
+          },
+          animation: { duration: 0 }
+        }
+      });
+    }
+    
+    function updateChart() {
+      if (tempChart && tempHistory.length) {
+        tempChart.data.datasets[0].data = tempHistory;
+        tempChart.update('none');
+      }
+    }
+    
+    async function loadPrograms() {
+      try {
+        const r = await fetch('/api/programs');
+        const d = await r.json();
+        renderList(d.programs);
+      } catch(e) { document.getElementById('programList').innerHTML = '<p style="color:#f44">Ошибка</p>'; }
+    }
+    
+    function renderList(progs) {
+      const div = document.getElementById('programList');
+      if (!progs?.length) { div.innerHTML = '<p style="text-align:center;color:#aaa">Нет программ</p>'; return; }
+      div.innerHTML = progs.map((p,i) => `
+        <div class="program-item">
+          <div><b>${i+1}. ${p.name}</b><br><small>${p.prg}</small></div>
+          <div class="program-actions">
+            <button class="btn-primary" onclick="loadPrg(${i})">▶</button>
+            <button class="btn-warning" onclick="editPrg(${i},'${p.name}','${p.prg}')">✏️</button>
+            <button class="btn-danger" onclick="delPrg(${i})">🗑️</button>
+          </div>
+        </div>`).join('');
+    }
+    
+    function openAddModal() {
+      document.getElementById('modalTitle').textContent = 'Добавить программу';
+      document.getElementById('progId').value = '-1';
+      document.getElementById('progName').value = '';
+      document.getElementById('progSteps').value = '';
+      document.getElementById('progModal').style.display = 'flex';
+    }
+    
+    function editPrg(id, name, prg) {
+      document.getElementById('modalTitle').textContent = 'Редактировать';
+      document.getElementById('progId').value = id;
+      document.getElementById('progName').value = name;
+      document.getElementById('progSteps').value = prg;
+      document.getElementById('progModal').style.display = 'flex';
+    }
+    
+    function closeModal() { document.getElementById('progModal').style.display = 'none'; }
+    
+    async function saveProgram(e) {
+      e.preventDefault();
+      const id = parseInt(document.getElementById('progId').value);
+      const name = document.getElementById('progName').value.trim();
+      const prg = document.getElementById('progSteps').value.trim();
+      if (!name || !prg) return alert('Заполните поля');
+      const body = { name, prg };
+      if (id >= 0) body.id = id;
+      const r = await fetch('/api/programs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (r.ok) { alert('Сохранено'); closeModal(); loadPrograms(); }
+      else alert('Ошибка: ' + await r.text());
+    }
+    
+    async function delPrg(id) {
+      if (!confirm('Удалить программу?')) return;
+      const r = await fetch('/api/programs?id=' + id, { method: 'DELETE' });
+      if (r.ok) loadPrograms(); else alert('Ошибка');
+    }
+    
+    async function loadPrg(id) {
+      const r = await fetch('/api/loadProgram', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id })
+      });
+      if (!r.ok) alert('Ошибка: ' + await r.text());
+    }
+    
+    async function applySetpoint() {
+      const v = parseFloat(document.getElementById('manualSp').value);
+      if (isNaN(v) || v < 20 || v > 1000) return alert('Диапазон: 20-1000');
+      await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'setpoint', value: v })
+      });
+    }
+    
+    async function stopHeating() {
+      await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'stop' })
+      });
+    }
+    
+    async function savePID() {
+      const kp = parseFloat(document.getElementById('pidKp').value);
+      const ki = parseFloat(document.getElementById('pidKi').value);
+      const kd = parseFloat(document.getElementById('pidKd').value);
+      await fetch('/api/control', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'pid', kp, ki, kd })
+      });
+      alert('PID сохранён');
+    }
+    
+    function downloadLog() { location.href = '/log/download'; }
+    
+    async function clearLog() {
+      if (!confirm('Очистить лог-файл?')) return;
+      await fetch('/log/clear', { method: 'POST' });
+      alert('Лог очищен');
+      updateLogStatus();
+    }
+    
+    async function updateLogStatus() {
+      try {
+        const r = await fetch('/log/status');
+        const d = await r.json();
+        document.getElementById('logSize').textContent = d.file_kb.toFixed(1) + ' KB';
+      } catch(e) {}
+    }
+    
+    window.onload = () => {
+      initChart();
+      connectWS();
+      loadPrograms();
+      updateLogStatus();
+      window.onclick = e => { if (e.target.id === 'progModal') closeModal(); };
+    };
+  </script>
+</body>
+</html>
