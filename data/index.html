@@ -4,308 +4,317 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>🔥 Furnace Pro</title>
+
+  <!-- Локальные файлы -->
   <link rel="stylesheet" href="/css/style.css">
   <script src="/js/chart.js"></script>
+  <script src="/js/hammer.min.js"></script>
+  <script src="/js/chartjs-plugin-zoom.min.js"></script>
 </head>
 <body class="theme-fire" id="mainBody">
-  <div class="container">
-    <h1>🔥 Muffle Furnace Pro</h1>
-    
-    <!-- Переключатель тем -->
-    <div class="theme-bar">
-      <label for="themeSelect">🎨 Стиль:</label>
-      <select id="themeSelect" onchange="changeTheme(this.value)">
-        <option value="theme-fire">🔥 Огненный</option>
-        <option value="theme-green">🟢 Зеленый</option>
-        <option value="theme-red">🔴 Красный</option>
-      </select>
-    </div>
+<div class="container">
+  <h1>🔥 Muffle Furnace Pro</h1>
 
-    <!-- Состояние -->
-    <div class="panel">
-      <h2>📊 Текущее состояние</h2>
-      <div class="temp-display"><span id="currentTemp">--.-</span> °C</div>
-      <div class="info-row"><span>🎯 Setpoint:</span><span id="setpoint">--.- °C</span></div>
-      <div class="info-row"><span>⚡ Output:</span><span id="output">--%</span></div>
-      <div class="info-row"><span>🔌 SSR:</span><span id="ssrState" class="status-off">OFF</span></div>
-      <div class="info-row"><span>📋 Mode:</span><span id="mode">STANDBY</span></div>
-      <div class="info-row"><span>📈 Step:</span><span id="currentStep">- / -</span></div>
-    </div>
+  <div class="theme-bar">
+    <label>🎨 Стиль:</label>
+    <select id="themeSelect" onchange="changeTheme(this.value)">
+      <option value="theme-fire">🔥 Огненный</option>
+      <option value="theme-green">🟢 Зеленый</option>
+      <option value="theme-red">🔴 Красный</option>
+    </select>
+  </div>
 
-    <!-- График -->
-    <div class="panel">
-      <h2>📈 График температуры</h2>
-      <div class="chart-container">
-        <canvas id="tempChart"></canvas>
-      </div>
-    </div>
-
-    <!-- Программы -->
-    <div class="panel">
-      <h2>📜 Управление программами</h2>
-      <button class="btn-info" onclick="openAddModal()">➕ Добавить программу</button>
-      <button onclick="loadPrograms()">🔄 Обновить список</button>
-      <div class="program-list" id="programList">
-        <p style="text-align:center;color:#aaa">Загрузка...</p>
-      </div>
-    </div>
-
-    <!-- Ручное управление -->
-    <div class="panel">
-      <h2>⚙️ Ручное управление</h2>
-      <label>Setpoint (°C):</label>
-      <input type="number" id="manualSp" min="20" max="1000" value="100">
-      <button onclick="applySetpoint()">▶ Применить</button>
-      <button class="btn-danger" onclick="stopHeating()">🛑 СТОП</button>
-    </div>
-
-    <!-- PID -->
-    <div class="panel">
-      <h2>🔧 Настройки PID</h2>
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-        <div><label>Kp:</label><input type="number" id="pidKp" step="0.1" value="50.0"></div>
-        <div><label>Ki:</label><input type="number" id="pidKi" step="0.01" value="0.1"></div>
-        <div><label>Kd:</label><input type="number" id="pidKd" step="0.1" value="10.0"></div>
-      </div>
-      <button onclick="savePID()">💾 Сохранить PID</button>
-    </div>
-
-    <!-- Лог -->
-    <div class="panel">
-      <h2>📊 Логирование</h2>
-      <div class="info-row"><span>Размер:</span><span id="logSize">...</span></div>
-      <button class="btn-info" onclick="downloadLog()">⬇️ Скачать CSV</button>
-      <button class="btn-danger" onclick="clearLog()">🗑️ Очистить</button>
+  <div class="panel">
+    <h2>📊 Состояние</h2>
+    <div class="temp-display"><span id="temp">--.-</span> °C</div>
+    <div class="info-row"><span>🎯 Setpoint:</span><span id="setpoint">--.- °C</span></div>
+    <div class="info-row"><span>⚡ Output:</span><span id="output">--%</span></div>
+    <div class="info-row"><span>🔌 SSR:</span><span id="ssr" class="status-off">OFF</span></div>
+    <div class="info-row"><span>📋 Mode:</span><span id="mode">STANDBY</span></div>
+    <div class="info-row"><span>📈 Step:</span><span id="step">- / -</span></div>
+    <div class="info-row"><span>⏱️ Progress:</span><span id="progress">-</span></div>
+    <div style="background:rgba(255,255,255,0.1);height:8px;border-radius:4px;margin-top:5px;overflow:hidden">
+      <div id="progressBar" style="background:var(--accent);height:100%;width:0%;transition:width 0.3s"></div>
     </div>
   </div>
 
-  <!-- Модальное окно -->
-  <div id="progModal" class="modal">
-    <div class="modal-content">
-      <span class="close-modal" onclick="closeModal()">&times;</span>
-      <h2 id="modalTitle">Добавить программу</h2>
-      <form onsubmit="saveProgram(event)">
-        <input type="hidden" id="progId" value="-1">
-        <label>Название:</label>
-        <input type="text" id="progName" required placeholder="Например: Отжиг стали">
-        <label>Программа (формат: temp,min;temp,min;...):</label>
-        <textarea id="progSteps" required placeholder="600,30;850,45;200,180"></textarea>
-        <small style="color:#aaa;display:block;margin:5px 0">Пример: 600,30;850,45;200,180</small>
-        <button type="submit">💾 Сохранить</button>
-      </form>
+  <div class="panel">
+    <h2>📈 График: Факт / Цель / Setpoint</h2>
+    <div class="chart-container" style="height: 400px;">
+      <canvas id="tempChart"></canvas>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin-top:10px;font-size:12px">
+      <div style="display:flex;gap:10px">
+        <span style="display:flex;align-items:center"><span style="width:15px;height:3px;background:#ffd700;margin-right:5px"></span>Факт</span>
+        <span style="display:flex;align-items:center"><span style="width:15px;height:3px;border-top:2px dashed #ffd700;margin-right:5px"></span>Цель</span>
+        <span style="display:flex;align-items:center"><span style="width:15px;height:3px;border-top:2px dotted #fff;margin-right:5px"></span>Setpoint</span>
+      </div>
+      <button onclick="resetZoom()" style="width:auto;padding:2px 8px;background:rgba(255,255,255,0.2);font-size:10px">🔍 Сбросить зум</button>
     </div>
   </div>
 
-  <script>
-    // ===== THEME SWITCHER =====
-    function changeTheme(themeName) {
-      document.body.className = themeName;
-      localStorage.setItem('furnaceTheme', themeName);
-      console.log('✅ Theme applied:', themeName);
-    }
+  <div class="panel">
+    <h2>📜 Программы</h2>
+    <button class="btn-info" onclick="openAddModal()">➕ Добавить</button>
+    <button onclick="loadPrograms()">🔄 Обновить</button>
+    <div class="program-list" id="progList"></div>
+  </div>
 
-    // Восстановление темы при загрузке
-    document.addEventListener('DOMContentLoaded', () => {
-      const saved = localStorage.getItem('furnaceTheme') || 'theme-fire';
-      changeTheme(saved);
-      const sel = document.getElementById('themeSelect');
-      if (sel) sel.value = saved;
-    });
+  <div class="panel">
+    <h2>⚙️ Ручное</h2>
+    <input type="number" id="sp" min="20" max="1000" value="100" placeholder="Setpoint °C">
+    <button onclick="setSP()">▶ Применить</button>
+    <button class="btn-danger" onclick="stop()">🛑 СТОП</button>
+  </div>
 
-    // ===== WEBSOCKET & CHART =====
-    let ws, tempChart, tempHistory = [];
-    
-    function connectWS() {
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      // 🔧 Явно указываем порт 81 для WebSocket
-      const wsUrl = proto + '//' + location.hostname + ':81/';
-      
-      ws = new WebSocket(wsUrl);
-      ws.onmessage = e => updateUI(JSON.parse(e.data));
-      ws.onclose = () => setTimeout(connectWS, 3000);
-      ws.onerror = err => console.error('WebSocket error:', err);
+  <div class="panel">
+    <h2>🔧 PID</h2>
+    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
+      <input type="number" id="kp" step="0.1" value="50" placeholder="Kp">
+      <input type="number" id="ki" step="0.01" value="0.1" placeholder="Ki">
+      <input type="number" id="kd" step="0.1" value="10" placeholder="Kd">
+    </div>
+    <button onclick="savePID()">💾 Сохранить</button>
+  </div>
+
+  <div class="panel">
+    <h2>📊 Лог</h2>
+    <div class="info-row"><span>Размер:</span><span id="logSize">-- KB</span></div>
+    <button class="btn-info" onclick="dlLog()">⬇️ Скачать CSV</button>
+    <button class="btn-danger" onclick="clrLog()">🗑️ Очистить</button>
+  </div>
+</div>
+
+<div id="modal" class="modal">
+  <div class="modal-content">
+    <span class="close" onclick="closeModal()">&times;</span>
+    <h2 id="mTitle">Добавить программу</h2>
+    <form onsubmit="saveProg(event)">
+      <input type="hidden" id="pId" value="-1">
+      <label>Название:</label><input type="text" id="pName" required>
+      <label>Программа (temp,min;...):</label><textarea id="pPrg" required></textarea>
+      <button type="submit">💾 Сохранить</button>
+    </form>
+  </div>
+</div>
+
+<script>
+  let ws, chart;
+  let actualData = [], targetData = [], setpointData = [], timeLabels = [];
+  let programSteps = [], manualStartTime = 0, lastManualUpdate = 0;
+  const resolutionSec = 30;
+
+  // ===== ТЕМЫ =====
+  function changeTheme(t) {
+    document.body.className = t; localStorage.setItem('furnaceTheme', t);
+    if(chart) {
+      let c = getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#ffd700';
+      chart.data.datasets[0].borderColor = c; chart.data.datasets[0].backgroundColor = c+'1A'; chart.data.datasets[1].borderColor = c;
+      chart.update('none');
     }
-    
-    function updateUI(d) {
-      document.getElementById('currentTemp').textContent = d.temp.toFixed(1);
-      document.getElementById('setpoint').textContent = d.setpoint.toFixed(1) + ' °C';
-      document.getElementById('output').textContent = d.output.toFixed(0) + '%';
-      const ssr = document.getElementById('ssrState');
-      ssr.textContent = d.ssr ? 'ON' : 'OFF';
-      ssr.className = d.ssr ? 'status-on' : 'status-off';
-      document.getElementById('mode').textContent = d.mode;
-      document.getElementById('currentStep').textContent = 
-        d.programSteps > 0 ? (d.currentStep+1) + ' / ' + d.programSteps : '- / -';
-      if (d.tempHistory) { tempHistory = d.tempHistory; updateChart(); }
-    }
-    
-    // ✅ ИСПРАВЛЕНО: Синтаксис инициализации Chart.js (добавлен ключ 'data')
-    function initChart() {
-      if (typeof Chart === 'undefined') { 
-        document.getElementById('tempChart').innerHTML = '<p style="color:#f44;text-align:center">⚠️ chart.js не найден</p>'; 
-        return; 
+  }
+  document.addEventListener('DOMContentLoaded', () => {
+    changeTheme(localStorage.getItem('furnaceTheme') || 'theme-fire');
+    let s = document.getElementById('themeSelect'); if(s) s.value = document.body.className;
+  });
+
+  // ===== WEBSOCKET =====
+  function connectWS() {
+    ws = new WebSocket('ws://' + location.hostname + ':81/');
+    ws.onmessage = e => { try { update(JSON.parse(e.data)); } catch(err) {} };
+    ws.onclose = () => setTimeout(connectWS, 3000);
+  }
+
+  // ===== ГЕНЕРАЦИЯ ЦЕЛЕВОЙ КРИВОЙ =====
+  function generateTarget() {
+    if (!programSteps.length) { targetData = []; timeLabels = []; return; }
+    targetData = []; timeLabels = [];
+    let totalSec = 0;
+    programSteps.forEach(s => totalSec += s.duration_min * 60);
+    let ct = 0, si = 0, ss = 0, pt = programSteps[0]?.temp || 25;
+    for (let i = 0; i <= Math.ceil(totalSec / 30); i++) {
+      ct = i * 30; timeLabels.push((ct/60).toFixed(1));
+      while (si < programSteps.length && ct >= ss + programSteps[si].duration_min * 60) {
+        ss += programSteps[si].duration_min * 60; pt = programSteps[si].temp; si++;
       }
-      const ctx = document.getElementById('tempChart').getContext('2d');
-      tempChart = new Chart(ctx, {
-        type: 'line',
-        data: {  // ✅ Здесь был пропущен ключ 'data'
-          labels: Array(60).fill(''),
-          datasets: [{
-            label: '°C',
-            data: Array(60).fill(0), // ✅ Здесь был пропущен ключ 'data' перед массивом
-            borderColor: '#ffd700',
-            backgroundColor: 'rgba(255,215,0,0.1)',
+      if (si >= programSteps.length) { targetData.push(pt); continue; }
+      let dur = programSteps[si].duration_min * 60;
+      let prog = Math.min(1, Math.max(0, (ct - ss) / dur));
+      targetData.push(pt + (programSteps[si].temp - pt) * prog);
+    }
+  }
+
+  // ✅ ИНИЦИАЛИЗАЦИЯ ГРАФИКА (Синтаксис 100% исправлен)
+  function initChart() {
+    const ctx = document.getElementById('tempChart').getContext('2d');
+    let accent = getComputedStyle(document.body).getPropertyValue('--accent').trim() || '#ffd700';
+
+    // ВНИМАНИЕ: Здесь добавлены ключи 'data:', которых не хватало
+    chart = new Chart(ctx, {
+      type: 'line',
+      data: {  // <--- ОБЯЗАТЕЛЬНЫЙ КЛЮЧ 'data'
+        labels: [],
+        datasets: [
+          {
+            label: 'Факт',
+            data: [], // <--- ОБЯЗАТЕЛЬНЫЙ КЛЮЧ 'data'
+            borderColor: accent,
+            backgroundColor: accent+'1A',
             tension: 0.3,
             fill: true,
-            pointRadius: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          plugins: { legend: { display: false } },
-          scales: {
-            y: { beginAtZero: true, max: 1100, grid: { color: 'rgba(255,255,255,0.1)' }, ticks: { color: '#ccc' } },
-            x: { display: false }
+            pointRadius: 0,
+            order: 3
           },
-          animation: { duration: 0 }
-        }
-      });
-    }
-    
-    function updateChart() {
-      if (tempChart && tempHistory.length) {
-        tempChart.data.datasets[0].data = tempHistory;
-        tempChart.update('none');
+          {
+            label: 'Цель',
+            data: [], // <--- ОБЯЗАТЕЛЬНЫЙ КЛЮЧ 'data'
+            borderColor: accent,
+            borderDash: [5,5],
+            borderWidth: 2,
+            tension: 0,
+            pointRadius: 0,
+            fill: false,
+            order: 2
+          },
+          {
+            label: 'Setpoint',
+            data: [], // <--- ОБЯЗАТЕЛЬНЫЙ КЛЮЧ 'data'
+            borderColor: '#fff',
+            borderDash: [2,3],
+            borderWidth: 1.5,
+            pointRadius: 1,
+            tension: 0,
+            fill: false,
+            order: 1
+          }
+        ]
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { zoom: { pan: { enabled: true, mode: 'x', modifierKey: null }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } }, legend: { display: false } },
+        scales: { x: { title: { display: true, text: 'Время (мин)' }, ticks: { callback: v => v + ' мин' } }, y: { beginAtZero: true, max: 1100 } },
+        animation: { duration: 0 }
       }
+    });
+  }
+
+  function clearGraph() {
+    actualData = []; targetData = []; setpointData = []; timeLabels = [];
+    programSteps = []; manualStartTime = 0; lastManualUpdate = 0;
+    document.getElementById('progress').textContent = '-';
+    document.getElementById('progressBar').style.width = '0%';
+    document.getElementById('step').textContent = '- / -';
+    if(chart) chart.update('none');
+  }
+
+  // ===== ОБНОВЛЕНИЕ ДАННЫХ =====
+  function update(d) {
+    document.getElementById('temp').textContent = d.temp.toFixed(1);
+    document.getElementById('setpoint').textContent = d.setpoint.toFixed(1) + '°C';
+    document.getElementById('output').textContent = d.output.toFixed(0) + '%';
+    const ssrEl = document.getElementById('ssr'); ssrEl.textContent = d.ssr ? 'ON' : 'OFF'; ssrEl.className = d.ssr ? 'status-on' : 'status-off';
+    document.getElementById('mode').textContent = d.mode;
+
+    const isProgram = d.mode === "PROGRAM" && d.programLoaded;
+    const isManual  = d.mode === "MANUAL";
+    const isStop    = !isProgram && !isManual;
+
+    if (isStop) { clearGraph(); return; }
+
+    if (isProgram) {
+      manualStartTime = 0; lastManualUpdate = 0;
+      if (targetData.length === 0 || d.elapsedSec < 2) {
+        programSteps = d.stepsData; generateTarget();
+        actualData = Array(targetData.length).fill(null); setpointData = Array(targetData.length).fill(null);
+      }
+      if (d.elapsedSec >= 0 && targetData.length > 0) {
+        const idx = Math.min(Math.floor(d.elapsedSec / resolutionSec), targetData.length - 1);
+        if (idx >= 0 && idx < actualData.length) { actualData[idx] = d.temp; setpointData[idx] = d.setpoint; }
+        if (d.currentStep >= 0 && d.currentStep < programSteps.length) {
+          let sStart = 0; for(let i=0; i<d.currentStep; i++) sStart += programSteps[i].duration_min * 60;
+          const dur = programSteps[d.currentStep].duration_min * 60;
+          let prog = Math.max(0, Math.min(100, ((d.elapsedSec - sStart) / dur) * 100));
+          document.getElementById('progress').textContent = Math.round(prog) + '%'; document.getElementById('progressBar').style.width = prog + '%';
+        }
+        document.getElementById('step').textContent = (d.currentStep+1) + ' / ' + d.programSteps;
+      }
+    } else if (isManual) {
+      if (programSteps.length > 0) clearGraph();
+      if (manualStartTime === 0) {
+        manualStartTime = Date.now();
+        actualData = []; targetData = []; setpointData = []; timeLabels = [];
+      }
+      const now = Date.now();
+      if (now - lastManualUpdate >= 10000) {
+        const elapsedSec = (now - manualStartTime) / 1000;
+        actualData.push(d.temp); targetData.push(d.setpoint); setpointData.push(d.setpoint); timeLabels.push((elapsedSec / 60).toFixed(1));
+        lastManualUpdate = now;
+      } else {
+        if (actualData.length > 0) actualData[actualData.length - 1] = d.temp;
+      }
+      document.getElementById('progress').textContent = '-'; document.getElementById('progressBar').style.width = '0%';
+      document.getElementById('step').textContent = 'MANUAL';
     }
-    
-    async function loadPrograms() {
-      try {
-        const r = await fetch('/api/programs');
-        const d = await r.json();
-        renderList(d.programs);
-      } catch(e) { document.getElementById('programList').innerHTML = '<p style="color:#f44">Ошибка</p>'; }
+
+    if (chart) {
+      chart.data.labels = [...timeLabels];
+      chart.data.datasets[0].data = [...actualData];
+      chart.data.datasets[1].data = [...targetData];
+      chart.data.datasets[2].data = [...setpointData];
+      chart.update('none');
     }
-    
-    function renderList(progs) {
-      const div = document.getElementById('programList');
-      if (!progs?.length) { div.innerHTML = '<p style="text-align:center;color:#aaa">Нет программ</p>'; return; }
-      div.innerHTML = progs.map((p,i) => `
+  }
+
+  function resetZoom() { if(chart) chart.resetZoom(); }
+  function closeModal() { document.getElementById('modal').style.display='none'; }
+  function openAddModal() { document.getElementById('mTitle').innerText='Добавить'; document.getElementById('pId').value='-1'; document.getElementById('pName').value=''; document.getElementById('pPrg').value=''; document.getElementById('modal').style.display='flex'; }
+  function editPrg(id,n,p) { document.getElementById('mTitle').innerText='Ред.'; document.getElementById('pId').value=id; document.getElementById('pName').value=n; document.getElementById('pPrg').value=p; document.getElementById('modal').style.display='flex'; }
+
+  // ✅ СПИСОК ПРОГРАММ: 2 СТРОКИ (Название <br> Параметры)
+  async function loadPrograms() {
+    let r=await fetch('/api/programs');
+    let d=await r.json();
+    document.getElementById('progList').innerHTML=d.programs.map((p,i)=>`
         <div class="program-item">
-          <div><b>${i+1}. ${p.name}</b><br><small>${p.prg}</small></div>
+          <div style="flex:1; margin-right:10px; overflow:hidden; text-overflow:ellipsis;">
+            <b>${i+1}. ${p.name}</b><br>
+            <small style="opacity:0.7">${p.prg}</small>
+          </div>
           <div class="program-actions">
             <button onclick="loadPrg(${i})">▶</button>
-            <button class="btn-danger" style="background:#ff9800" onclick="editPrg(${i},'${p.name}','${p.prg}')">✏️</button>
+            <button class="btn-warning" onclick="editPrg(${i},'${p.name}','${p.prg}')">✏️</button>
             <button class="btn-danger" onclick="delPrg(${i})">🗑️</button>
           </div>
         </div>`).join('');
+  }
+
+  async function saveProg(e) { e.preventDefault(); let id=parseInt(document.getElementById('pId').value), b={name:document.getElementById('pName').value,prg:document.getElementById('pPrg').value}; if(id>=0) b.id=id; let r=await fetch('/api/programs',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(b)}); if(r.ok){alert('OK');closeModal();loadPrograms();} }
+  async function delPrg(id) { if(confirm('Удалить?')) { await fetch('/api/programs?id='+id,{method:'DELETE'}); loadPrograms(); } }
+  async function loadPrg(id) { await fetch('/api/loadProgram',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}); }
+  async function setSP() { let v=parseFloat(document.getElementById('sp').value); if(v>=20 && v<=1000) await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'setpoint',value:v})}); }
+  async function stop() { await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'stop'})}); }
+  async function savePID() { let kp=parseFloat(document.getElementById('kp').value), ki=parseFloat(document.getElementById('ki').value), kd=parseFloat(document.getElementById('kd').value); await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'pid',kp,ki,kd})}); alert('OK'); }
+  function dlLog() { location.href='/log/download'; }
+  async function updateLogStatus() {
+    try {
+      const r = await fetch('/log/status');
+      const d = await r.json();
+      document.getElementById('logSize').textContent = d.file_kb.toFixed(1) + ' KB';
+    } catch(e) { console.warn('Не удалось получить размер лога:', e); }
+  }
+  async function clrLog() {
+    if(confirm('Очистить лог?')) {
+      await fetch('/log/clear',{method:'POST'});
+      updateLogStatus(); // ✅ Обновляем размер сразу после очистки
     }
-    
-    function openAddModal() {
-      document.getElementById('modalTitle').textContent = 'Добавить программу';
-      document.getElementById('progId').value = '-1';
-      document.getElementById('progName').value = '';
-      document.getElementById('progSteps').value = '';
-      document.getElementById('progModal').style.display = 'flex';
-    }
-    
-    function editPrg(id, name, prg) {
-      document.getElementById('modalTitle').textContent = 'Редактировать';
-      document.getElementById('progId').value = id;
-      document.getElementById('progName').value = name;
-      document.getElementById('progSteps').value = prg;
-      document.getElementById('progModal').style.display = 'flex';
-    }
-    
-    function closeModal() { document.getElementById('progModal').style.display = 'none'; }
-    
-    async function saveProgram(e) {
-      e.preventDefault();
-      const id = parseInt(document.getElementById('progId').value);
-      const name = document.getElementById('progName').value.trim();
-      const prg = document.getElementById('progSteps').value.trim();
-      if (!name || !prg) return alert('Заполните поля');
-      const body = { name, prg };
-      if (id >= 0) body.id = id;
-      const r = await fetch('/api/programs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body)
-      });
-      if (r.ok) { alert('Сохранено'); closeModal(); loadPrograms(); }
-      else alert('Ошибка: ' + await r.text());
-    }
-    
-    async function delPrg(id) {
-      if (!confirm('Удалить программу?')) return;
-      const r = await fetch('/api/programs?id=' + id, { method: 'DELETE' });
-      if (r.ok) loadPrograms(); else alert('Ошибка');
-    }
-    
-    async function loadPrg(id) {
-      const r = await fetch('/api/loadProgram', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id })
-      });
-      if (!r.ok) alert('Ошибка: ' + await r.text());
-    }
-    
-    async function applySetpoint() {
-      const v = parseFloat(document.getElementById('manualSp').value);
-      if (isNaN(v) || v < 20 || v > 1000) return alert('Диапазон: 20-1000');
-      await fetch('/api/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'setpoint', value: v })
-      });
-    }
-    
-    async function stopHeating() {
-      await fetch('/api/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'stop' })
-      });
-    }
-    
-    async function savePID() {
-      const kp = parseFloat(document.getElementById('pidKp').value);
-      const ki = parseFloat(document.getElementById('pidKi').value);
-      const kd = parseFloat(document.getElementById('pidKd').value);
-      await fetch('/api/control', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'pid', kp, ki, kd })
-      });
-      alert('PID сохранён');
-    }
-    
-    function downloadLog() { location.href = '/log/download'; }
-    
-    async function clearLog() {
-      if (!confirm('Очистить лог-файл?')) return;
-      await fetch('/log/clear', { method: 'POST' });
-      alert('Лог очищен');
-      updateLogStatus();
-    }
-    
-    async function updateLogStatus() {
-      try {
-        const r = await fetch('/log/status');
-        const d = await r.json();
-        document.getElementById('logSize').textContent = d.file_kb.toFixed(1) + ' KB';
-      } catch(e) {}
-    }
-    
-    window.onload = () => {
-      initChart();
-      connectWS();
-      loadPrograms();
-      updateLogStatus();
-      window.onclick = e => { if (e.target.id === 'progModal') closeModal(); };
-    };
-  </script>
+  }
+  window.onload = () => {
+    initChart();
+    connectWS();
+    loadPrograms();
+    updateLogStatus(); // ✅ Обновляем размер лога при старте
+    window.onclick=e=>{if(e.target.id==='modal')closeModal();};
+  };
+</script>
 </body>
 </html>

@@ -1,9 +1,8 @@
 // ============================================================
-// ESP32-C3 Supermini — Муфельная печь v0.5 (MAX31855 only)
+// ESP32-C3 Supermini — Муфельная печь v0.6 (Graph Fix)
 // Wi-Fi AP + STA, 50 шагов, 20 программ, Chart.js (LittleFS)
 // PID, CSV-лог, 3 кнопки, OLED, WebServer + WebSockets
-// ArduinoJson v7 compatible | Fixed HTTP headers | 1050.1 stub
-// NEW PINOUT: OLED 8/9, BTN 2/1/6, SSR 3, SPI 4/0/5
+// ✅ Fixed: Continuous graph across steps, Progress bar logic, Syntax cleanup
 // ============================================================
 #include <WiFi.h>
 #include <WebServer.h>
@@ -16,7 +15,7 @@
 #include <LittleFS.h>
 #include <Adafruit_MAX31855.h>
 
-// 📌 Пины (НОВАЯ КОНФИГУРАЦИЯ)
+// 📌 Пины
 #define OLED_SDA    8
 #define OLED_SCL    9
 #define BTN_UP      2
@@ -38,9 +37,8 @@ bool isApMode = false;
 // ⚙️ PID
 double Kp = 50.0, Ki = 0.1, Kd = 10.0;
 double setpoint = 25.0, input = 25.0, output = 0.0;
-// Порядок аргументов в библиотеке Adafruit: (CLK, CS, MISO)
-Adafruit_MAX31855 thermocouple(TC_CLK, TC_CS, TC_MISO);
 PID myPID(&input, &output, &setpoint, Kp, Ki, Kd, DIRECT);
+Adafruit_MAX31855 thermocouple(TC_CLK, TC_CS, TC_MISO);
 
 // 📊 Динамическая программа
 #define MAX_STEPS 50
@@ -49,10 +47,13 @@ ProgramStep activeSteps[MAX_STEPS];
 uint8_t activeStepCount = 0;
 bool programLoaded = false;
 int8_t currentStepIdx = 0;
-unsigned long stepStartTime = 0;
+
+// ⏱️ Таймеры
+unsigned long stepStartTime = 0;      // Время начала ТЕКУЩЕГО шага (для расчета уставки)
+unsigned long programStartTime = 0;   // 🔥 Время начала ВСЕЙ программы (для графика)
 
 // 📜 Предустановленные программы
-#define MAX_PREDEF_PROGS 50
+#define MAX_PREDEF_PROGS 20
 String predefNames[MAX_PREDEF_PROGS];
 String predefStrings[MAX_PREDEF_PROGS];
 uint8_t predefCount = 0;
@@ -66,7 +67,7 @@ WebSocketsServer webSocket(81);
 #define SCREEN_HEIGHT 64
 Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
-// ⏱️ Таймеры
+// ⏱️ Таймеры системы
 unsigned long lastTempRead = 0, lastDisplayUpdate = 0, lastWsUpdate = 0, lastLogTime = 0;
 bool programRunning = false, heatingEnabled = false;
 
@@ -89,8 +90,7 @@ uint8_t historyIdx = 0;
 #define MAX_LOG_SIZE 262144
 #define LOG_FILE "/furnace_log.csv"
 
-// ============================================================
-// 💾 СОХРАНЕНИЕ/ЗАГРУЗКА PID
+// 💾 PID CONFIG
 void loadPIDConfig() {
   File f = LittleFS.open("/pid_config.json", "r");
   if (!f) return;
@@ -100,17 +100,13 @@ void loadPIDConfig() {
     if (doc["ki"].is<double>()) Ki = doc["ki"].as<double>();
     if (doc["kd"].is<double>()) Kd = doc["kd"].as<double>();
     myPID.SetTunings(Kp, Ki, Kd);
-    Serial.printf("💾 PID loaded: Kp=%.1f Ki=%.2f Kd=%.1f\n", Kp, Ki, Kd);
   }
   f.close();
 }
-
 void savePIDConfig() {
-  JsonDocument doc;
-  doc["kp"] = Kp; doc["ki"] = Ki; doc["kd"] = Kd;
+  JsonDocument doc; doc["kp"] = Kp; doc["ki"] = Ki; doc["kd"] = Kd;
   File f = LittleFS.open("/pid_config.json", "w");
   if (f) { serializeJson(doc, f); f.close(); }
-  Serial.printf("💾 PID saved: Kp=%.1f Ki=%.2f Kd=%.1f\n", Kp, Ki, Kd);
 }
 
 String getContentType(String filename) {
@@ -122,16 +118,13 @@ String getContentType(String filename) {
   return "text/plain";
 }
 
-// 🔧 ИСПРАВЛЕНО: streamFile() сам отправляет заголовки и тело. 
-// Ручные sendHeader/send(200) удалены, чтобы избежать дубликатов (ERR_RESPONSE_HEADERS_MULTIPLE_CONTENT_LENGTH).
 void handleFileRequest() {
   if (isApMode) { server.send(404, "text/plain", "Config mode active"); return; }
   String path = server.uri();
   if (path == "/") path = "/index.html";
   if (LittleFS.exists(path)) {
     File file = LittleFS.open(path, "r");
-    // streamFile отправляет 200 OK + Content-Type + Content-Length + BODY
-    server.streamFile(file, getContentType(path)); 
+    server.streamFile(file, getContentType(path));
     file.close();
   } else server.send(404, "text/plain", "Not found");
 }
@@ -139,7 +132,6 @@ void handleFileRequest() {
 void handleLogDownload() {
   if (!LittleFS.exists(LOG_FILE)) { server.send(404, "text/plain", "Log not found"); return; }
   File file = LittleFS.open(LOG_FILE, "r");
-  // Здесь заголовки нужны, так как мы меняем имя файла (disposition)
   server.sendHeader("Content-Disposition", "attachment; filename=\"furnace_log.csv\"", true);
   server.streamFile(file, "text/csv");
   file.close();
@@ -166,8 +158,7 @@ bool saveProgramsToFile() {
   JsonArray arr = doc["programs"].to<JsonArray>();
   for (uint8_t i = 0; i < predefCount; i++) {
     JsonObject p = arr.add<JsonObject>();
-    p["name"] = predefNames[i];
-    p["prg"] = predefStrings[i];
+    p["name"] = predefNames[i]; p["prg"] = predefStrings[i];
   }
   File f = LittleFS.open("/programs.json", "w");
   if (!f) return false;
@@ -189,6 +180,7 @@ void loadPredefinedPrograms() {
 {"name":"Керамика обжиг","prg":"200,60;950,120;500,180"},
 {"name":"Сушка смолы","prg":"120,90;180,60;50,120"},
 {"name":"Плавка алюминия","prg":"700,45;750,30"},
+{"name":"Тестовый (быстрый)","prg":"200,5;300,5;200,5"},
 {"name":"Калибровка датчика","prg":"232,10;327,10;50,10"},
 {"name":"Синтеризация меди","prg":"800,60;900,90;400,120"},
 {"name":"Закалка латуни","prg":"650,40;350,80;50,100"},
@@ -199,10 +191,9 @@ void loadPredefinedPrograms() {
 {"name":"Закалка нержавейки","prg":"1050,60;550,90;100,150"},
 {"name":"Стеклянный обжиг","prg":"550,120;750,180;450,240"},
 {"name":"Эмаль обжиг","prg":"800,45;750,60;300,90"},
-{"name":"Гипс сушка","prg":"150,60;200,90;50,60"},
-{"name":"Тестовый (быстрый)","prg":"200,5;300,5;200,5"}
+{"name":"Гипс сушка","prg":"150,60;200,90;50,60"}
 ]})raw");
-      w.close(); Serial.println("✅ Default programs.json created"); f = LittleFS.open("/programs.json", "r");
+      w.close(); f = LittleFS.open("/programs.json", "r");
     } else return;
   }
   JsonDocument doc; DeserializationError err = deserializeJson(doc, f); f.close();
@@ -263,14 +254,25 @@ void handleLoadProgram() {
   if(d["id"].is<JsonVariant>()){uint8_t id=d["id"].as<uint8_t>();if(id>=predefCount){server.send(400,"text/plain","Invalid ID");return;}prg=predefStrings[id];}
   else if(d["prg"].is<JsonVariant>()){prg=d["prg"].as<String>();}
   else{server.send(400,"text/plain","Missing id/prg");return;}
-  if(parseProgramString(prg)){currentStepIdx=0;stepStartTime=millis();programLoaded=programRunning=heatingEnabled=true;myPID.SetMode(AUTOMATIC);server.send(200,"text/plain","OK");}
-  else server.send(400,"text/plain","Invalid format"); sendWsStatus();
+  
+  if(parseProgramString(prg)){
+    currentStepIdx=0;
+    stepStartTime=millis();
+    programStartTime=millis(); // 🔥 Фиксируем время старта программы ОДИН РАЗ
+    programLoaded=programRunning=heatingEnabled=true;
+    myPID.SetMode(AUTOMATIC);
+    server.send(200,"text/plain","OK");
+  } else server.send(400,"text/plain","Invalid format"); 
+  sendWsStatus();
 }
 
 void handleControlRequest() {
   if(!server.hasArg("plain")){server.send(400,"text/plain","Bad request");return;}
   String j=server.arg("plain"); JsonDocument d; deserializeJson(d,j); const char*a=d["action"];
-  if(strcmp(a,"setpoint")==0){setpoint=d["value"];if(setpoint>MAX_TEMP_LIMIT)setpoint=MAX_TEMP_LIMIT;if(setpoint<20)setpoint=20;}
+  if(strcmp(a,"setpoint")==0){
+    setpoint=d["value"];if(setpoint>MAX_TEMP_LIMIT)setpoint=MAX_TEMP_LIMIT;if(setpoint<20)setpoint=20;
+    if(!programRunning){heatingEnabled=true;myPID.SetMode(AUTOMATIC);}
+  }
   else if(strcmp(a,"toggle")==0){heatingEnabled=!heatingEnabled;programRunning=false;myPID.SetMode(heatingEnabled?AUTOMATIC:MANUAL);}
   else if(strcmp(a,"stop")==0){heatingEnabled=programRunning=false;digitalWrite(SSR_PIN,LOW);}
   else if(strcmp(a,"pid")==0){Kp=d["kp"]; Ki=d["ki"]; Kd=d["kd"]; myPID.SetTunings(Kp,Ki,Kd); savePIDConfig();}
@@ -278,10 +280,33 @@ void handleControlRequest() {
 }
 
 void sendJsonStatus() {
-  JsonDocument doc; doc["temp"]=input; doc["setpoint"]=setpoint; doc["heating"]=heatingEnabled; doc["programRunning"]=programRunning;
-  doc["programLoaded"]=programLoaded; doc["programSteps"]=activeStepCount; doc["currentStep"]=currentStepIdx;
-  String s; serializeJson(doc,s); server.send(200,"application/json",s);
+  JsonDocument doc; 
+  doc["temp"]=input; 
+  doc["setpoint"]=setpoint; 
+  doc["output"]=output/255.0*100;
+  doc["ssr"]=digitalRead(SSR_PIN); 
+  doc["heatingEnabled"]=heatingEnabled; 
+  doc["mode"]=programRunning?"PROGRAM":(heatingEnabled?"MANUAL":"STANDBY");
+  doc["programLoaded"]=programLoaded; 
+  doc["programSteps"]=activeStepCount; 
+  doc["currentStep"]=currentStepIdx;
+  
+  // 🔥 ОТПРАВЛЯЕМ АБСОЛЮТНОЕ ВРЕМЯ С НАЧАЛА ПРОГРАММЫ (для графика)
+  if(programLoaded && programStartTime > 0){
+    doc["elapsedSec"] = (millis() - programStartTime) / 1000.0;
+  } else {
+    doc["elapsedSec"] = -1;
+  }
+
+  if(programLoaded && activeStepCount>0){
+    JsonArray steps=doc["stepsData"].to<JsonArray>();
+    for(uint8_t i=0;i<activeStepCount;i++){JsonObject s=steps.add<JsonObject>();s["temp"]=activeSteps[i].temp;s["duration_min"]=activeSteps[i].duration_min;}
+  }
+  JsonArray h=doc["tempHistory"].to<JsonArray>(); for(int i=0;i<GRAPH_POINTS;i++)h.add(tempHistory[(historyIdx+i)%GRAPH_POINTS]);
+  String m; serializeJson(doc,m); webSocket.broadcastTXT(m);
 }
+
+void sendWsStatus(){ sendJsonStatus(); } // Алиас для обратной совместимости
 
 bool parseProgramString(const String& prgStr) {
   activeStepCount=0; int start=0;
@@ -301,6 +326,18 @@ void loadWifiConfig() {
 }
 void saveWifiConfig(String ssid,String pass){JsonDocument doc;doc["ssid"]=ssid;doc["pass"]=pass;File f=LittleFS.open(CONFIG_FILE,"w");serializeJson(doc,f);f.close();}
 
+void handleScanNetworks() {
+  wifi_mode_t originalMode = WiFi.getMode();
+  if (originalMode == WIFI_AP) { WiFi.mode(WIFI_AP_STA); delay(100); }
+  int n = WiFi.scanNetworks(false, true);
+  if (originalMode == WIFI_AP) { WiFi.mode(WIFI_AP); delay(50); }
+  if (n == -1) { server.send(503, "application/json", "{\"error\":\"Scan failed\"}"); return; }
+  JsonDocument doc; JsonArray arr = doc["networks"].to<JsonArray>();
+  for (int i=0; i<n && i<15; i++) { JsonObject o = arr.add<JsonObject>(); o["ssid"] = WiFi.SSID(i); o["rss"] = WiFi.RSSI(i); o["sec"] = (int)WiFi.encryptionType(i); }
+  String resp; serializeJson(doc, resp); server.send(200, "application/json", resp);
+  WiFi.scanDelete();
+}
+
 void startAP() {
   Serial.println("🔄 Resetting Wi-Fi...");WiFi.persistent(false);WiFi.disconnect(true);delay(300);
   WiFi.mode(WIFI_AP);delay(150);WiFi.setSleep(false);
@@ -310,14 +347,9 @@ void startAP() {
 }
 
 void handleConfigPage() {
-  String html=R"rawliteral(<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WiFi Config</title><style>body{font-family:sans-serif;background:#222;color:#eee;padding:20px;text-align:center}input,button{padding:10px;margin:5px;width:80%;max-width:300px}button{background:#0a0;color:#fff;border:none}</style></head><body><h2>🔌 Furnace Wi-Fi</h2><select id="ssl"></select><br><input id="ssi" placeholder="SSID"><br><input id="pw" type="password" placeholder="Password"><br><button onclick="sv()">💾 Save</button><button onclick="sc()">🔍 Scan</button><p id="m"></p><script>function sc(){fetch('/scan').then(r=>r.json()).then(d=>{const s=document.getElementById('ssl');s.innerHTML='<option>-- Select --</option>';d.n.forEach(n=>{let o=document.createElement('option');o.value=n.s;o.textContent=n.s+' ('+n.r+'dBm)';s.appendChild(o);});}).catch(e=>document.getElementById('m').innerText='Error');}function sv(){const ssid=document.getElementById('ssl').value||document.getElementById('ssi').value,pw=document.getElementById('pw').value;if(!ssid)return alert('SSID!');fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid,pass:pw})}).then(r=>r.text()).then(t=>document.getElementById('m').innerText=t);}
+  String html = R"rawliteral(<!DOCTYPE html><html><head><meta charset="UTF-8"><title>WiFi Config</title><style>body{font-family:sans-serif;background:#222;color:#eee;padding:20px;text-align:center}input,button{padding:10px;margin:5px;width:80%;max-width:300px}button{background:#0a0;color:#fff;border:none}</style></head><body><h2>🔌 Furnace Wi-Fi</h2><select id="ssl"></select><br><input id="ssi" placeholder="SSID"><br><input id="pw" type="password" placeholder="Password"><br><button onclick="sv()">💾 Save</button><button onclick="sc()">🔍 Scan</button><p id="m"></p><script>function sc(){fetch('/scan').then(r=>r.json()).then(d=>{const s=document.getElementById('ssl');s.innerHTML='<option>-- Select --</option>';d.networks.forEach(n=>{let o=document.createElement('option');o.value=n.s;o.textContent=(n.sec==0?'🔓':'🔐')+' '+n.s+' ('+n.r+'dBm)';s.appendChild(o);});}).catch(e=>document.getElementById('m').innerText='Error');}function sv(){const ssid=document.getElementById('ssl').value||document.getElementById('ssi').value,pw=document.getElementById('pw').value;if(!ssid)return alert('SSID!');fetch('/save',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ssid,pass:pw})}).then(r=>r.text()).then(t=>document.getElementById('m').innerText=t);}
 </script></body></html>)rawliteral";
   server.send(200,"text/html",html);
-}
-void handleScanNetworks() {
-  int n=WiFi.scanNetworks();JsonDocument doc;JsonArray arr=doc["networks"].to<JsonArray>();
-  for(int i=0;i<n&&i<15;i++){JsonObject o=arr.add<JsonObject>();o["ssid"]=WiFi.SSID(i);o["rss"]=WiFi.RSSI(i);}
-  String r;serializeJson(doc,r);server.send(200,"application/json",r);WiFi.scanDelete();
 }
 void handleSaveWifi() {
   if(!server.hasArg("plain")){server.send(400);return;}String j=server.arg("plain");JsonDocument d;deserializeJson(d,j);
@@ -331,7 +363,7 @@ void setup() {
   pinMode(BTN_UP,INPUT_PULLUP);pinMode(BTN_DOWN,INPUT_PULLUP);pinMode(BTN_SEL,INPUT_PULLUP);
   Wire.begin(OLED_SDA,OLED_SCL);
   if(!display.begin(SSD1306_SWITCHCAPVCC,0x3C)){Serial.println("OLED fail");while(1);}
-  display.setTextColor(SSD1306_WHITE);display.setTextSize(1);display.clearDisplay();display.setCursor(0,0);display.println("Furnace Pro v0.5");display.display();delay(1000);
+  display.setTextColor(SSD1306_WHITE);display.setTextSize(1);display.clearDisplay();display.setCursor(0,0);display.println("Furnace Pro v0.6");display.display();delay(1000);
   myPID.SetMode(AUTOMATIC);myPID.SetOutputLimits(0,255);myPID.SetSampleTime(1000);
   readTemperature();
   
@@ -339,8 +371,7 @@ void setup() {
   if(!fs){Serial.println("❌ FS critical error");display.println("FLASH ERROR");display.display();while(1)delay(1000);}
   
   if(!LittleFS.exists(LOG_FILE)){File f=LittleFS.open(LOG_FILE,"w");f.println("time_sec,temp_c,setpoint_c,output_pct,ssr_state,mode,program_step");f.close();}
-  loadPredefinedPrograms();
-  loadPIDConfig();
+  loadPredefinedPrograms(); loadPIDConfig();
   display.println("WiFi...");display.display();loadWifiConfig();
   if(wifiCfg.isValid){WiFi.mode(WIFI_STA);WiFi.begin(wifiCfg.ssid,wifiCfg.pass);display.print("Connecting");display.display();unsigned long t=millis();while(WiFi.status()!=WL_CONNECTED&&millis()-t<12000){delay(500);display.print(".");display.display();}}
   if(WiFi.status()==WL_CONNECTED){isApMode=false;Serial.printf("IP: %s\n",WiFi.localIP().toString().c_str());}else startAP();
@@ -350,12 +381,14 @@ void setup() {
   server.on("/api/status",HTTP_GET,sendJsonStatus);server.on("/api/control",HTTP_POST,handleControlRequest);
   server.on("/api/loadProgram",HTTP_POST,handleLoadProgram);server.on("/api/programs",HTTP_GET,handleGetPrograms);
   server.on("/api/programs",HTTP_POST,handleManageProgram);server.on("/api/programs",HTTP_DELETE,handleDeleteProgram);
-  if(isApMode){server.on("/",HTTP_GET,handleConfigPage);server.on("/scan",HTTP_GET,handleScanNetworks);server.on("/save",HTTP_POST,handleSaveWifi);}
+  server.on("/scan",HTTP_GET,handleScanNetworks);
+  server.on("/save",HTTP_POST,handleSaveWifi);
+
+  if(isApMode){server.on("/",HTTP_GET,handleConfigPage);}
   else{server.onNotFound(handleFileRequest);webSocket.begin();webSocket.onEvent([](uint8_t n,WStype_t t,uint8_t*p,size_t l){if(t==WStype_CONNECTED)sendWsStatus();});}
   server.begin();display.println(isApMode?"AP:192.168.4.1":"STA:"+WiFi.localIP().toString());display.display();
 }
 
-// ============================================================
 void loop() {
   unsigned long now=millis();
   if(now-lastTempRead>=1000){readTemperature();updateHistory();lastTempRead=now;}
@@ -370,8 +403,6 @@ void loop() {
   handleButtons();server.handleClient();if(!isApMode)webSocket.loop();
 }
 
-// ============================================================
-// 🔧 ЗАГЛУШКА 1050.1 + ДИАГНОСТИКА ОШИБОК MAX31855
 float readTemperature() {
   float t=thermocouple.readCelsius();
   if(isnan(t)||t>1200||t<-100){
@@ -383,77 +414,51 @@ float readTemperature() {
 }
 void updateHistory(){tempHistory[historyIdx]=input;historyIdx=(historyIdx+1)%GRAPH_POINTS;}
 void controlSSR(double pidOut){static unsigned long ws=0;const unsigned long win=2000;unsigned long now=millis();if(now-ws>=win)ws=now;unsigned long duty=(unsigned long)((pidOut/255.0)*win);digitalWrite(SSR_PIN,(now-ws<duty)?HIGH:LOW);}
+
 void runProgramStep(unsigned long now){
   if(!programLoaded||currentStepIdx>=activeStepCount){programRunning=heatingEnabled=false;digitalWrite(SSR_PIN,LOW);return;}
-  float em=(now-stepStartTime)/60000.0;ProgramStep&s=activeSteps[currentStepIdx];
-  if(em<s.duration_min){float pt=(currentStepIdx==0)?input:activeSteps[currentStepIdx-1].temp;float pr=em/s.duration_min;setpoint=pt+(s.temp-pt)*pr;}
-  else{currentStepIdx++;stepStartTime=now;}myPID.Compute();controlSSR(output);
+  // Используем stepStartTime (время начала текущего шага) для расчета уставки внутри шага
+  float em=(now-stepStartTime)/60000.0;
+  ProgramStep&s=activeSteps[currentStepIdx];
+  if(em<s.duration_min){
+    float pt=(currentStepIdx==0)?input:activeSteps[currentStepIdx-1].temp;
+    float pr=em/s.duration_min;
+    setpoint=pt+(s.temp-pt)*pr;
+  } else {
+    currentStepIdx++;
+    stepStartTime=now; // Сбрасываем таймер шага, но НЕ programStartTime
+  }
+  myPID.Compute();controlSSR(output);
 }
+
 void logFurnaceData(){File f=LittleFS.open(LOG_FILE,FILE_APPEND);if(!f)return;unsigned long t=millis()/1000;const char*m=programRunning?"PROG":(heatingEnabled?"MANUAL":"OFF");f.printf("%lu,%.1f,%.1f,%.1f,%d,%s,%d\n",t,input,setpoint,output,digitalRead(SSR_PIN),m,currentStepIdx);f.close();File i=LittleFS.open(LOG_FILE,"r");size_t sz=i.size();i.close();if(sz>MAX_LOG_SIZE){LittleFS.remove(LOG_FILE);File n=LittleFS.open(LOG_FILE,"w");n.println("time_sec,temp_c,setpoint_c,output_pct,ssr_state,mode,program_step");n.close();}}
 
-// 🔧 КНОПКИ И СБРОС WI-FI
 void handleButtons(){
   bool up=digitalRead(BTN_UP)==LOW, down=digitalRead(BTN_DOWN)==LOW, sel=digitalRead(BTN_SEL)==LOW;
-  
-  // 🔥 СБРОС WI-FI: UP + DOWN > 15 сек
   if(up && down){
-    if(!comboActive){
-      comboActive=true; comboPressStart=millis(); comboDone=false;
-      Serial.println("⏱️ UP+DOWN held... Wi-Fi reset in 15s");
-    }
+    if(!comboActive){comboActive=true;comboPressStart=millis();comboDone=false;Serial.println("⏱️ UP+DOWN held... Wi-Fi reset in 15s");}
     unsigned long elapsed=millis()-comboPressStart;
-    unsigned long rem=15-(elapsed/1000);
-    Serial.printf("\rWi-Fi Reset: %2lus ", rem);
-    
-    if(elapsed>=15000 && !comboDone){
-      comboDone=true;
-      Serial.println("\n🔄 Resetting Wi-Fi config & rebooting...");
-      display.clearDisplay(); display.setCursor(0,0);
-      display.println("WiFi Config Reset"); display.display();
-      LittleFS.remove(CONFIG_FILE);
-      delay(1000); ESP.restart();
-    }
-  } else {
-    if(comboActive && !comboDone) comboActive=false;
-  }
+    if(elapsed>=15000 && !comboDone){comboDone=true;Serial.println("\n🔄 Resetting Wi-Fi...");LittleFS.remove(CONFIG_FILE);delay(1000);ESP.restart();}
+  } else { if(comboActive && !comboDone) comboActive=false; }
 
-  // Стандартная обработка кнопок (debounce)
   static bool lst[3]={1,1,1}; static unsigned long lt[3]={0,0,0};
   bool states[3]={up, down, sel};
   for(uint8_t i=0;i<3;i++){
-    if(states[i] && !lst[i] && millis()-lt[i]>200){
-      lt[i]=millis();
+    if(states[i] && !lst[i] && millis()-lt[i]>200){lt[i]=millis();
       if(i==0 && !programRunning){setpoint+=1.0; if(setpoint>MAX_TEMP_LIMIT)setpoint=MAX_TEMP_LIMIT;}
       else if(i==1 && !programRunning){setpoint-=1.0; if(setpoint<20)setpoint=20;}
       else if(i==2 && !programRunning){heatingEnabled=!heatingEnabled; myPID.SetMode(heatingEnabled?AUTOMATIC:MANUAL);}
-    }
-    lst[i]=states[i];
+    } lst[i]=states[i];
   }
 }
 
 void updateDisplay(){
-  display.clearDisplay(); display.setCursor(0,0);
-  display.println("FURNACE PRO v0.5");
-  display.print("T:"); display.print(input,1); display.println("C");
-  display.print("SP:"); display.print(setpoint,1); display.println("C");
-  if(programRunning){
-    display.print("PROG:"); display.print(activeStepCount); display.println("steps");
-    display.print("Step:"); display.print(currentStepIdx+1); display.print("/"); display.println(activeStepCount);
-    display.print("->"); display.print(activeSteps[currentStepIdx].temp); display.println("C");
-  } else {
-    display.print("Mode:"); display.println(heatingEnabled?"MANUAL":"STANDBY");
-    if(programLoaded) display.println("Prog loaded");
-  }
+  display.clearDisplay(); display.setCursor(0,0); display.println("FURNACE PRO v0.6");
+  display.print("T:"); display.print(input,1); display.println("C"); display.print("SP:"); display.print(setpoint,1); display.println("C");
+  if(programRunning){ display.print("PROG:"); display.print(activeStepCount); display.println("steps"); display.print("Step:"); display.print(currentStepIdx+1); display.print("/"); display.println(activeStepCount); display.print("->"); display.print(activeSteps[currentStepIdx].temp); display.println("C"); }
+  else { display.print("Mode:"); display.println(heatingEnabled?"MANUAL":"STANDBY"); if(programLoaded) display.println("Prog loaded"); }
   display.print("PID:"); display.print(output/255.0*100,0); display.print("%|SSR:"); display.println(digitalRead(SSR_PIN)?"ON":"OFF");
   display.drawFastHLine(0,56,128,SSD1306_WHITE);
   for(int i=0;i<GRAPH_POINTS;i+=2){int y=63-map(constrain(tempHistory[(historyIdx+i)%GRAPH_POINTS],0,MAX_TEMP_LIMIT),0,MAX_TEMP_LIMIT,0,7);display.drawPixel(i/2,y,SSD1306_WHITE);}
   display.display();
-}
-
-void sendWsStatus(){
-  JsonDocument doc; doc["temp"]=input; doc["setpoint"]=setpoint; doc["output"]=output/255.0*100;
-  doc["ssr"]=digitalRead(SSR_PIN); doc["mode"]=programRunning?"PROGRAM":(heatingEnabled?"MANUAL":"STANDBY");
-  doc["programLoaded"]=programLoaded; doc["programSteps"]=activeStepCount; doc["currentStep"]=currentStepIdx;
-  JsonArray h=doc["tempHistory"].to<JsonArray>(); for(int i=0;i<GRAPH_POINTS;i++)h.add(tempHistory[(historyIdx+i)%GRAPH_POINTS]);
-  String m; serializeJson(doc,m); webSocket.broadcastTXT(m);
 }
