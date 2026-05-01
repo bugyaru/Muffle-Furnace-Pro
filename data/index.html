@@ -70,9 +70,9 @@
   <div class="panel">
     <h2>🔧 PID</h2>
     <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px">
-      <input type="number" id="kp" step="0.1" value="50" placeholder="Kp">
-      <input type="number" id="ki" step="0.01" value="0.1" placeholder="Ki">
-      <input type="number" id="kd" step="0.1" value="10" placeholder="Kd">
+      <input type="number" id="kp" step="1" value="50" placeholder="Kp">
+      <input type="number" id="ki" step="0.1" value="0.1" placeholder="Ki">
+      <input type="number" id="kd" step="0.5" value="10" placeholder="Kd">
     </div>
     <button onclick="savePID()">💾 Сохранить</button>
   </div>
@@ -309,6 +309,18 @@
   async function loadPrg(id) { await fetch('/api/loadProgram',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({id})}); }
   async function setSP() { let v=parseFloat(document.getElementById('sp').value); if(v>=20 && v<=1000) await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'setpoint',value:v})}); }
   async function stop() { await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'stop'})}); }
+  async function loadPID() {
+    try {
+      const r = await fetch('/api/status');
+      const d = await r.json();
+      // Если сервер отправляет PID параметры
+      if (d.kp) document.getElementById('kp').value = d.kp;
+      if (d.ki) document.getElementById('ki').value = d.ki;
+      if (d.kd) document.getElementById('kd').value = d.kd;
+    } catch(e) {
+      console.warn('Не удалось загрузить PID:', e);
+    }
+  }
   async function savePID() { let kp=parseFloat(document.getElementById('kp').value), ki=parseFloat(document.getElementById('ki').value), kd=parseFloat(document.getElementById('kd').value); await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'pid',kp,ki,kd})}); alert('OK'); }
   function dlLog() { location.href='/log/download'; }
   async function updateLogStatus() {
@@ -328,6 +340,7 @@
     initChart();
     connectWS();
     loadPrograms();
+    loadPID();
     updateLogStatus(); // ✅ Обновляем размер лога при старте
     window.onclick=e=>{if(e.target.id==='modal')closeModal();};
   };

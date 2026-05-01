@@ -102,11 +102,13 @@ void loadPIDConfig() {
     myPID.SetTunings(Kp, Ki, Kd);
   }
   f.close();
+  Serial.printf("✅ PID Config loaded\n");
 }
 void savePIDConfig() {
   JsonDocument doc; doc["kp"] = Kp; doc["ki"] = Ki; doc["kd"] = Kd;
   File f = LittleFS.open("/pid_config.json", "w");
   if (f) { serializeJson(doc, f); f.close(); }
+  Serial.printf("✅ PID Config saved\n");
 }
 
 String getContentType(String filename) {
@@ -290,6 +292,9 @@ void sendJsonStatus() {
   doc["programLoaded"]=programLoaded; 
   doc["programSteps"]=activeStepCount; 
   doc["currentStep"]=currentStepIdx;
+  doc["kp"] = Kp;
+  doc["ki"] = Ki;
+  doc["kd"] = Kd;
   
   // 🔥 ОТПРАВЛЯЕМ АБСОЛЮТНОЕ ВРЕМЯ С НАЧАЛА ПРОГРАММЫ (для графика)
   if(programLoaded && programStartTime > 0){
@@ -323,8 +328,10 @@ bool parseProgramString(const String& prgStr) {
 void loadWifiConfig() {
   File f=LittleFS.open(CONFIG_FILE,"r");if(!f)return;JsonDocument doc;
   if(deserializeJson(doc,f)==DeserializationError::Ok){wifiCfg.ssid=doc["ssid"].as<String>();wifiCfg.pass=doc["pass"].as<String>();wifiCfg.isValid=(wifiCfg.ssid.length()>0);}f.close();
+  Serial.printf("✅ WiFi Config loaded\n");
+
 }
-void saveWifiConfig(String ssid,String pass){JsonDocument doc;doc["ssid"]=ssid;doc["pass"]=pass;File f=LittleFS.open(CONFIG_FILE,"w");serializeJson(doc,f);f.close();}
+void saveWifiConfig(String ssid,String pass){JsonDocument doc;doc["ssid"]=ssid;doc["pass"]=pass;File f=LittleFS.open(CONFIG_FILE,"w");serializeJson(doc,f);f.close();Serial.printf("✅ WiFi Config saved\n");}
 
 void handleScanNetworks() {
   wifi_mode_t originalMode = WiFi.getMode();
