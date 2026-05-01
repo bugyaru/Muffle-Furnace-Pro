@@ -102,7 +102,7 @@
   let ws, chart;
   let actualData = [], targetData = [], setpointData = [], timeLabels = [];
   let programSteps = [], manualStartTime = 0, lastManualUpdate = 0;
-  const resolutionSec = 30;
+  const resolutionSec = 10;
 
   // ===== ТЕМЫ =====
   function changeTheme(t) {
@@ -132,8 +132,8 @@
     let totalSec = 0;
     programSteps.forEach(s => totalSec += s.duration_min * 60);
     let ct = 0, si = 0, ss = 0, pt = programSteps[0]?.temp || 25;
-    for (let i = 0; i <= Math.ceil(totalSec / 30); i++) {
-      ct = i * 30; timeLabels.push((ct/60).toFixed(1));
+    for (let i = 0; i <= Math.ceil(totalSec / resolutionSec); i++) {
+      ct = i * resolutionSec; timeLabels.push((ct/60).toFixed(1));
       while (si < programSteps.length && ct >= ss + programSteps[si].duration_min * 60) {
         ss += programSteps[si].duration_min * 60; pt = programSteps[si].temp; si++;
       }
@@ -192,7 +192,23 @@
       options: {
         responsive: true, maintainAspectRatio: false,
         plugins: { zoom: { pan: { enabled: true, mode: 'x', modifierKey: null }, zoom: { wheel: { enabled: true }, pinch: { enabled: true }, mode: 'x' } }, legend: { display: false } },
-        scales: { x: { title: { display: true, text: 'Время (мин)' }, ticks: { callback: v => v + ' мин' } }, y: { beginAtZero: true, max: 1100 } },
+        scales: {
+          x: {
+            title: { display: true, text: 'Время (мин)' },
+            ticks: {
+              callback: function(value) {
+                // Показываем метки каждые 2 минуты (120 секунд / 10 сек = каждые 12 точек)
+                if (value % 12 === 0) {
+                  return (value / 6).toFixed(0) + ' мин'; // value/6 потому что 60 сек / 10 сек = 6
+                }
+                return '';
+              },
+              maxTicksLimit: 10 // Ограничиваем количество меток
+            },
+            grid: { display: true }
+          },
+          y: { beginAtZero: true, max: 1100 }
+        },        
         animation: { duration: 0 }
       }
     });

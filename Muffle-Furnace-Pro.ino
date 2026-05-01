@@ -303,7 +303,7 @@ void sendJsonStatus() {
     for(uint8_t i=0;i<activeStepCount;i++){JsonObject s=steps.add<JsonObject>();s["temp"]=activeSteps[i].temp;s["duration_min"]=activeSteps[i].duration_min;}
   }
   JsonArray h=doc["tempHistory"].to<JsonArray>(); for(int i=0;i<GRAPH_POINTS;i++)h.add(tempHistory[(historyIdx+i)%GRAPH_POINTS]);
-  String m; serializeJson(doc,m); webSocket.broadcastTXT(m);
+  String m; serializeJson(doc,m); server.send(200, "application/json", m); webSocket.broadcastTXT(m);
 }
 
 void sendWsStatus(){ sendJsonStatus(); } // Алиас для обратной совместимости

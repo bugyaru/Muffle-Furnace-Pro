@@ -550,7 +550,7 @@ http://192.168.1.127/api
 
 **Пример запроса (curl):**
 ```bash
-curl http://192.168.1.127/api/status
+curl http://192.168.1.xxx/api/status
 ```
 
 ---
@@ -568,7 +568,7 @@ curl http://192.168.1.127/api/status
 
 **Пример (curl):**
 ```bash
-curl -X POST http://192.168.1.127/api/control \
+curl -X POST http://192.168.1.xxx/api/control \
   -H "Content-Type: application/json" \
   -d '{"setpoint":600.0,"heatingEnabled":true}'
 ```
@@ -594,7 +594,7 @@ curl -X POST http://192.168.1.127/api/control \
 
 **Пример (curl):**
 ```bash
-curl -X POST http://192.168.1.127/api/pid \
+curl -X POST http://192.168.1.xxx/api/pid \
   -H "Content-Type: application/json" \
   -d '{"kp":45.0,"ki":0.15,"kd":12.0}'
 ```
@@ -626,7 +626,7 @@ curl -X POST http://192.168.1.127/api/pid \
 
 **Пример (curl):**
 ```bash
-curl -X POST http://192.168.1.127/api/loadProgram \
+curl -X POST http://192.168.1.xxx/api/loadProgram \
   -H "Content-Type: application/json" \
   -d '{"programName":"Отжиг"}'
 ```
@@ -651,7 +651,7 @@ curl -X POST http://192.168.1.127/api/loadProgram \
 
 **Пример (curl):**
 ```bash
-curl -X POST http://192.168.1.127/api/programs \
+curl -X POST http://192.168.1.xxx/api/programs \
   -H "Content-Type: application/json" \
   -d '{"name":"Тест","prg":"500,15;800,30"}'
 ```
@@ -663,7 +663,7 @@ curl -X POST http://192.168.1.127/api/programs \
 
 **Пример (curl):**
 ```bash
-curl -X DELETE http://192.168.1.127/api/programs/Тест
+curl -X DELETE http://192.168.1.xxx/api/programs/Тест
 ```
 
 ---
@@ -686,7 +686,7 @@ timestamp,temp,setpoint,output
 
 ### WebSocket API
 
-Подключение: `ws://192.168.1.127/ws`
+Подключение: `ws://192.168.1.xxx/ws`
 
 #### Сообщения от сервера (ESP32 → Клиент)
 
@@ -923,7 +923,7 @@ ws.send(JSON.stringify({
 
 **Шаг 3:** Добавьте через API или веб-интерфейс
 ```bash
-curl -X POST http://192.168.1.127/api/programs \
+curl -X POST http://192.168.1.xxx/api/programs \
   -H "Content-Type: application/json" \
   -d '{"name":"Моя программа","prg":"200,30;400,60;600,30"}'
 ```
@@ -964,11 +964,11 @@ curl -X POST http://192.168.1.127/api/programs \
 **Полезные команды для диагностики:**
 ```bash
 # Проверка статуса
-curl http://192.168.1.127/api/status
+curl http://192.168.1.xxx/api/status
 
 # Проверка программ
-curl http://192.168.1.127/api/programs
+curl http://192.168.1.xxx/api/programs
 
 # Мониторинг в реальном времени
-watch -n 2 curl http://192.168.1.127/api/status
+watch -n 2 curl http://192.168.1.xxx/api/status
 ```
