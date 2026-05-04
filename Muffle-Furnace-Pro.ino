@@ -1,5 +1,5 @@
 // ============================================================
-// ESP32-C3 Supermini — Муфельная печь v0.6 (Graph Fix)
+// ESP32-C3 Supermini — Муфельная печь v0.7 (Graph Fix)
 // Wi-Fi AP + STA, 50 шагов, 20 программ, Chart.js (LittleFS)
 // PID, CSV-лог, 3 кнопки, OLED, WebServer + WebSockets
 // ✅ Fixed: Continuous graph across steps, Progress bar logic, Syntax cleanup
@@ -8,7 +8,7 @@
 #include <WebServer.h>
 #include <WebSocketsServer.h>
 #include <Adafruit_GFX.h>
-#include <Adafruit_SSD1306.h>
+#include <Adafruit_SH110X.h>
 #include <PID_v1.h>
 #include <ArduinoJson.h>
 #include <FS.h>
@@ -16,14 +16,14 @@
 #include <Adafruit_MAX31855.h>
 
 // 📌 Пины
-#define OLED_SDA    8
-#define OLED_SCL    9
+#define OLED_SDA    20
+#define OLED_SCL    21
 #define BTN_UP      2
 #define BTN_DOWN    1
-#define BTN_SEL     6
-#define SSR_PIN     3
-#define TC_CLK      4
-#define TC_CS       0
+#define BTN_SEL     3
+#define SSR_PIN     8
+#define TC_CLK      7
+#define TC_CS       6
 #define TC_MISO     5
 
 // 📡 Wi-Fi настройки
@@ -53,7 +53,7 @@ unsigned long stepStartTime = 0;      // Время начала ТЕКУЩЕГ�
 unsigned long programStartTime = 0;   // 🔥 Время начала ВСЕЙ программы (для графика)
 
 // 📜 Предустановленные программы
-#define MAX_PREDEF_PROGS 20
+#define MAX_PREDEF_PROGS 100
 String predefNames[MAX_PREDEF_PROGS];
 String predefStrings[MAX_PREDEF_PROGS];
 uint8_t predefCount = 0;
@@ -65,7 +65,7 @@ WebSocketsServer webSocket(81);
 // 🖥️ OLED
 #define SCREEN_WIDTH 128
 #define SCREEN_HEIGHT 64
-Adafruit_SSD1306 display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
+Adafruit_SH1106G display(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, -1);
 
 // ⏱️ Таймеры системы
 unsigned long lastTempRead = 0, lastDisplayUpdate = 0, lastWsUpdate = 0, lastLogTime = 0;
@@ -89,6 +89,25 @@ uint8_t historyIdx = 0;
 #define LOG_INTERVAL 10000
 #define MAX_LOG_SIZE 262144
 #define LOG_FILE "/furnace_log.csv"
+
+// 🎯 Режим выбора программы
+bool programSelectMode = false;        // По умолчанию — ВЫКЛ (после загрузки основной экран)
+unsigned long btnSelPressStart = 0;    // Таймер для BTN_SEL
+uint8_t selectedProgramIdx = 0;        // Индекс выбранной программы в меню
+#define SEL_SHORT_MS   200             // Антидребезг короткого нажатия
+#define SEL_MODE_MS    2000            // Вход/выход из режима выбора (2 сек)
+#define SEL_WIFI_MS    15000           // Сброс Wi-Fi (15 сек)
+
+// 🔘 Флаги для многоуровневого BTN_SEL
+unsigned long selPressStart = 0;
+bool sel2sTriggered  = false;  // Защита от многократного срабатывания за 1 нажатие
+bool sel15sTriggered = false;
+
+// 🔘 Состояния кнопок (неблокирующая логика)
+bool btnUpState   = false, btnDownState = false, btnSelState = false;
+unsigned long btnUpLast   = 0, btnDownLast = 0, btnSelLast = 0;
+const unsigned long BTN_DEBOUNCE = 50; // мс
+
 
 // 💾 PID CONFIG
 void loadPIDConfig() {
@@ -173,28 +192,27 @@ void loadPredefinedPrograms() {
     Serial.println("📝 programs.json not found. Creating default...");
     File w = LittleFS.open("/programs.json", "w");
     if (w) {
-      w.print(R"raw({"programs":[
-{"name":"Отжиг стали","prg":"600,30;850,45;200,180"},
-{"name":"Закалка инструментальная","prg":"900,60;550,120;50,300"},
-{"name":"Нормализация","prg":"950,45;600,90;200,150"},
-{"name":"Отпуск средний","prg":"450,20;450,60;50,120"},
-{"name":"Отпуск высокий","prg":"650,30;650,90;50,150"},
-{"name":"Керамика обжиг","prg":"200,60;950,120;500,180"},
-{"name":"Сушка смолы","prg":"120,90;180,60;50,120"},
-{"name":"Плавка алюминия","prg":"700,45;750,30"},
-{"name":"Тестовый (быстрый)","prg":"200,5;300,5;200,5"},
-{"name":"Калибровка датчика","prg":"232,10;327,10;50,10"},
-{"name":"Синтеризация меди","prg":"800,60;900,90;400,120"},
-{"name":"Закалка латуни","prg":"650,40;350,80;50,100"},
-{"name":"Отжиг бронзы","prg":"550,50;450,70;200,90"},
-{"name":"Плавка свинца","prg":"350,30;400,20"},
-{"name":"Плавка олова","prg":"250,25;300,20"},
-{"name":"Отжиг титана","prg":"750,90;650,120;300,180"},
-{"name":"Закалка нержавейки","prg":"1050,60;550,90;100,150"},
-{"name":"Стеклянный обжиг","prg":"550,120;750,180;450,240"},
-{"name":"Эмаль обжиг","prg":"800,45;750,60;300,90"},
-{"name":"Гипс сушка","prg":"150,60;200,90;50,60"}
-]})raw");
+      w.print(R"raw({"programs": [
+{"name": "Steel Annealing", "prg": "600,30;850,45;200,180"},
+{"name": "Tool Hardening", "prg": "900,60;550,120;50,300"},
+{"name": "Normalization", "prg": "950,45;600,90;200,150"},
+{"name": "Medium Tempering", "prg": "450,20;450,60;50,120"},
+{"name": "High Tempering", "prg": "650,30;650,90;50,150"},
+{"name": "Ceramic Firing", "prg": "200,60;950,120;500,180"},
+{"name": "Resin Drying", "prg": "120,90;180,60;50,120"},
+{"name": "Aluminum Melting", "prg": "700,45;750,30"},
+{"name": "Sensor Calibration", "prg": "232,10;327,10;50,10"},
+{"name": "Copper Sintering", "prg": "800,60;900,90;400,120"},
+{"name": "Brass Hardening", "prg": "650,40;350,80;50,100"},
+{"name": "Bronze Annealing", "prg": "550,50;450,70;200,90"},
+{"name": "Lead Melting", "prg": "350,30;400,20"},
+{"name": "Tin Melting", "prg": "250,25;300,20"},
+{"name": "Titanium Annealing", "prg": "750,90;650,120;300,180"},
+{"name": "Stainless Steel Hardening", "prg": "1050,60;550,90;100,150"},
+{"name": "Glass Firing", "prg": "550,120;750,180;450,240"},
+{"name": "Enamel Firing", "prg": "800,45;750,60;300,90"},
+{"name": "Gypsum Drying", "prg": "150,60;200,90;50,60"},
+{"name": "Test (fast)", "prg": "200,2;400,2;200,2;700,2;400,2;900,2;100,2"}]})raw");
       w.close(); f = LittleFS.open("/programs.json", "r");
     } else return;
   }
@@ -314,15 +332,51 @@ void sendJsonStatus() {
 void sendWsStatus(){ sendJsonStatus(); } // Алиас для обратной совместимости
 
 bool parseProgramString(const String& prgStr) {
-  activeStepCount=0; int start=0;
-  while(start<prgStr.length()&&activeStepCount<MAX_STEPS){
-    int end=prgStr.indexOf(';',start);if(end==-1)end=prgStr.length();
-    String step=prgStr.substring(start,end);step.trim();start=end+1;if(step.length()==0)continue;
-    int comma=step.indexOf(',');if(comma==-1)return false;
-    float t=step.substring(0,comma).toFloat(),m=step.substring(comma+1).toFloat();
-    if(t<20||t>MAX_TEMP_LIMIT||m<=0)return false;
-    activeSteps[activeStepCount].temp=t;activeSteps[activeStepCount].duration_min=(uint16_t)m;activeStepCount++;
-  } return activeStepCount>0;
+  activeStepCount = 0;
+  int start = 0;
+  Serial.printf("[PARSER] Raw: \"%s\"\n", prgStr.c_str()); // 🔍 Покажет точную строку из памяти
+
+  while (start < prgStr.length() && activeStepCount < MAX_STEPS) {
+    int end = prgStr.indexOf(';', start);
+    if (end == -1) end = prgStr.length();
+
+    String step = prgStr.substring(start, end);
+    step.trim(); 
+    step.replace("\r", ""); // 🧹 Удаляем скрытые символы возврата каретки
+    step.replace("\n", ""); // 🧹 Удаляем переводы строк
+    start = end + 1;
+    if (step.length() == 0) continue;
+
+    int comma = step.indexOf(',');
+    if (comma == -1) {
+      Serial.printf("[PARSER] ❌ No comma in: \"%s\"\n", step.c_str());
+      return false;
+    }
+
+    String sTemp = step.substring(0, comma);
+    String sDur  = step.substring(comma + 1);
+    sTemp.trim(); sDur.trim();
+
+    float t = sTemp.toFloat();
+    float m = sDur.toFloat();
+
+    if (t < 20.0 || t > MAX_TEMP_LIMIT || m <= 0.0) {
+      Serial.printf("[PARSER] ❌ Bad values: temp=%.1f dur=%.1f\n", t, m);
+      return false;
+    }
+
+    activeSteps[activeStepCount].temp = t;
+    activeSteps[activeStepCount].duration_min = (uint16_t)m;
+    activeStepCount++;
+  }
+
+  if (activeStepCount > 0) {
+    Serial.printf("[PARSER] ✅ %d steps loaded\n", activeStepCount);
+    return true;
+  } else {
+    Serial.println("[PARSER] ❌ Empty program");
+    return false;
+  }
 }
 
 void loadWifiConfig() {
@@ -367,10 +421,11 @@ void handleSaveWifi() {
 // ============================================================
 void setup() {
   Serial.begin(115200);pinMode(SSR_PIN,OUTPUT);digitalWrite(SSR_PIN,LOW);
-  pinMode(BTN_UP,INPUT_PULLUP);pinMode(BTN_DOWN,INPUT_PULLUP);pinMode(BTN_SEL,INPUT_PULLUP);
+  pinMode(BTN_UP,INPUT_PULLDOWN);pinMode(BTN_DOWN,INPUT_PULLDOWN);pinMode(BTN_SEL,INPUT_PULLDOWN);
   Wire.begin(OLED_SDA,OLED_SCL);
-  if(!display.begin(SSD1306_SWITCHCAPVCC,0x3C)){Serial.println("OLED fail");while(1);}
-  display.setTextColor(SSD1306_WHITE);display.setTextSize(1);display.clearDisplay();display.setCursor(0,0);display.println("Furnace Pro v0.6");display.display();delay(1000);
+  Wire.setClock(100000);
+  if(!display.begin(0x3C, true)){Serial.println("SH1106 allocation failed");while(1);}display.setRotation(0);display.clearDisplay();
+  display.setTextColor(SH110X_WHITE);display.setTextSize(1);display.clearDisplay();display.setCursor(0,0);display.println("FURNACE PRO v0.7");display.display();delay(500);
   myPID.SetMode(AUTOMATIC);myPID.SetOutputLimits(0,255);myPID.SetSampleTime(1000);
   readTemperature();
   
@@ -393,7 +448,7 @@ void setup() {
 
   if(isApMode){server.on("/",HTTP_GET,handleConfigPage);}
   else{server.onNotFound(handleFileRequest);webSocket.begin();webSocket.onEvent([](uint8_t n,WStype_t t,uint8_t*p,size_t l){if(t==WStype_CONNECTED)sendWsStatus();});}
-  server.begin();display.println(isApMode?"AP:192.168.4.1":"STA:"+WiFi.localIP().toString());display.display();
+  server.begin();//display.println(isApMode?"AP:192.168.4.1":"STA:"+WiFi.localIP().toString());display.display();
 }
 
 void loop() {
@@ -441,31 +496,188 @@ void runProgramStep(unsigned long now){
 void logFurnaceData(){File f=LittleFS.open(LOG_FILE,FILE_APPEND);if(!f)return;unsigned long t=millis()/1000;const char*m=programRunning?"PROG":(heatingEnabled?"MANUAL":"OFF");f.printf("%lu,%.1f,%.1f,%.1f,%d,%s,%d\n",t,input,setpoint,output,digitalRead(SSR_PIN),m,currentStepIdx);f.close();File i=LittleFS.open(LOG_FILE,"r");size_t sz=i.size();i.close();if(sz>MAX_LOG_SIZE){LittleFS.remove(LOG_FILE);File n=LittleFS.open(LOG_FILE,"w");n.println("time_sec,temp_c,setpoint_c,output_pct,ssr_state,mode,program_step");n.close();}}
 
 void handleButtons(){
-  bool up=digitalRead(BTN_UP)==LOW, down=digitalRead(BTN_DOWN)==LOW, sel=digitalRead(BTN_SEL)==LOW;
-  if(up && down){
-    if(!comboActive){comboActive=true;comboPressStart=millis();comboDone=false;Serial.println("⏱️ UP+DOWN held... Wi-Fi reset in 15s");}
-    unsigned long elapsed=millis()-comboPressStart;
-    if(elapsed>=15000 && !comboDone){comboDone=true;Serial.println("\n🔄 Resetting Wi-Fi...");LittleFS.remove(CONFIG_FILE);delay(1000);ESP.restart();}
-  } else { if(comboActive && !comboDone) comboActive=false; }
+  unsigned long now = millis();
+  bool up   = digitalRead(BTN_UP);
+  bool down = digitalRead(BTN_DOWN);
+  bool sel  = digitalRead(BTN_SEL);
 
-  static bool lst[3]={1,1,1}; static unsigned long lt[3]={0,0,0};
-  bool states[3]={up, down, sel};
-  for(uint8_t i=0;i<3;i++){
-    if(states[i] && !lst[i] && millis()-lt[i]>200){lt[i]=millis();
-      if(i==0 && !programRunning){setpoint+=1.0; if(setpoint>MAX_TEMP_LIMIT)setpoint=MAX_TEMP_LIMIT;}
-      else if(i==1 && !programRunning){setpoint-=1.0; if(setpoint<20)setpoint=20;}
-      else if(i==2 && !programRunning){heatingEnabled=!heatingEnabled; myPID.SetMode(heatingEnabled?AUTOMATIC:MANUAL);}
-    } lst[i]=states[i];
+  static unsigned long lastUp = 0, lastDown = 0, lastSel = 0, selPressStart = 0;
+  static bool prevUp = false, prevDown = false, prevSel = false;
+  const unsigned long DEBOUNCE = 50;
+
+  // Состояния автоповтора (только для основного экрана)
+  static unsigned long holdStartUp = 0, holdStartDown = 0;
+  static unsigned long lastRepeatUp = 0, lastRepeatDown = 0;
+  static bool isHoldingUp = false, isHoldingDown = false;
+  const unsigned long REPEAT_DELAY = 500;
+  const unsigned long REPEAT_RATE  = 100;
+
+  if(predefCount == 0) return;
+
+  // ⬆️ UP
+  if(up && !prevUp && now - lastUp > DEBOUNCE){
+    lastUp = now;
+    if(!programRunning){
+      if(programSelectMode){ selectedProgramIdx = (selectedProgramIdx + 1) % predefCount; updateDisplay(); }
+      else { isHoldingUp = true; holdStartUp = now; lastRepeatUp = now;
+             setpoint += 1.0; if(setpoint > MAX_TEMP_LIMIT) setpoint = MAX_TEMP_LIMIT;
+             sendWsStatus(); updateDisplay(); }
+    }
+  } else if(up && isHoldingUp && now - lastRepeatUp > REPEAT_RATE){
+    if(now - holdStartUp > REPEAT_DELAY && !programRunning && !programSelectMode){
+      setpoint += 1.0; if(setpoint > MAX_TEMP_LIMIT) setpoint = MAX_TEMP_LIMIT;
+      lastRepeatUp = now;
+    }
+  } else if(!up && isHoldingUp){ isHoldingUp = false; sendWsStatus(); }
+  prevUp = up;
+
+  // ⬇️ DOWN
+  if(down && !prevDown && now - lastDown > DEBOUNCE){
+    lastDown = now;
+    if(!programRunning){
+      if(programSelectMode){ selectedProgramIdx = (selectedProgramIdx + predefCount - 1) % predefCount; updateDisplay(); }
+      else { isHoldingDown = true; holdStartDown = now; lastRepeatDown = now;
+             setpoint -= 1.0; if(setpoint < 20) setpoint = 20;
+             sendWsStatus(); updateDisplay(); }
+    }
+  } else if(down && isHoldingDown && now - lastRepeatDown > REPEAT_RATE){
+    if(now - holdStartDown > REPEAT_DELAY && !programRunning && !programSelectMode){
+      setpoint -= 1.0; if(setpoint < 20) setpoint = 20;
+      lastRepeatDown = now;
+    }
+  } else if(!down && isHoldingDown){ isHoldingDown = false; sendWsStatus(); }
+  prevDown = down;
+
+  // 🔘 SEL: Фиксация нажатия
+  if(sel && !prevSel && now - lastSel > DEBOUNCE){ lastSel = now; selPressStart = now; }
+  // 🔘 SEL: Отпускание → Анализ длительности
+  else if(!sel && prevSel){
+    unsigned long hold = now - selPressStart;
+    if(hold >= 15000){ LittleFS.remove(CONFIG_FILE); ESP.restart(); return; }
+
+    if(hold >= 2000){
+      // 🛑 Если программа запущена → ОСТАНОВИТЬ
+      if(programRunning){
+        programRunning = false; heatingEnabled = false;
+        digitalWrite(SSR_PIN, LOW); myPID.SetMode(MANUAL); output = 0;
+        programSelectMode = false;
+        Serial.println("🛑 Program STOPPED (SEL 2s hold)");
+        sendWsStatus(); updateDisplay();
+      } 
+      // 🔄 Иначе → переключить режим выбора программ
+      else {
+        programSelectMode = !programSelectMode; selectedProgramIdx = 0;
+        Serial.println(programSelectMode ? "📋 Select Mode ON" : "✅ Select Mode OFF");
+        updateDisplay();
+      }
+    }
+    else if(hold >= 200 && hold < 2000 && !programRunning){
+      if(programSelectMode && predefCount > 0){
+        if(parseProgramString(predefStrings[selectedProgramIdx])){
+          currentStepIdx = 0; stepStartTime = now; programStartTime = now;
+          programLoaded = programRunning = heatingEnabled = true;
+          programSelectMode = false; myPID.SetMode(AUTOMATIC);
+          sendWsStatus(); updateDisplay();
+        }
+      } else {
+        heatingEnabled = !heatingEnabled; programRunning = false; programSelectMode = false;
+        if(!heatingEnabled){ myPID.SetMode(MANUAL); output = 0; digitalWrite(SSR_PIN, LOW); }
+        else { myPID.SetMode(AUTOMATIC); if(setpoint <= input + 2.0) setpoint = input + 15.0; myPID.Compute(); if(output < 10) output = 80; controlSSR(output); }
+        sendWsStatus(); updateDisplay();
+      }
+    }
   }
+  // ⚠️ SEL: Удержание 15с БЕЗ отпускания
+  if(sel && prevSel && now - selPressStart >= 15000){ LittleFS.remove(CONFIG_FILE); ESP.restart(); }
+  prevSel = sel;
 }
 
 void updateDisplay(){
-  display.clearDisplay(); display.setCursor(0,0); display.println("FURNACE PRO v0.6");
-  display.print("T:"); display.print(input,1); display.println("C"); display.print("SP:"); display.print(setpoint,1); display.println("C");
-  if(programRunning){ display.print("PROG:"); display.print(activeStepCount); display.println("steps"); display.print("Step:"); display.print(currentStepIdx+1); display.print("/"); display.println(activeStepCount); display.print("->"); display.print(activeSteps[currentStepIdx].temp); display.println("C"); }
-  else { display.print("Mode:"); display.println(heatingEnabled?"MANUAL":"STANDBY"); if(programLoaded) display.println("Prog loaded"); }
-  display.print("PID:"); display.print(output/255.0*100,0); display.print("%|SSR:"); display.println(digitalRead(SSR_PIN)?"ON":"OFF");
-  display.drawFastHLine(0,56,128,SSD1306_WHITE);
-  for(int i=0;i<GRAPH_POINTS;i+=2){int y=63-map(constrain(tempHistory[(historyIdx+i)%GRAPH_POINTS],0,MAX_TEMP_LIMIT),0,MAX_TEMP_LIMIT,0,7);display.drawPixel(i/2,y,SSD1306_WHITE);}
+  display.clearDisplay();
+  display.setCursor(0,0);
+  
+  // 🎯 Экран выбора программы (без изменений)
+  if(programSelectMode && predefCount > 0){
+    display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+    display.println("===SELECT PROGRAM===");
+    
+    int8_t startIdx = (selectedProgramIdx - 1 + predefCount) % predefCount;
+    for(int8_t i=0; i<3 && i<predefCount; i++){
+      int8_t idx = (startIdx + i) % predefCount;
+      display.setCursor(0, 14 + i*12);
+      if(idx == selectedProgramIdx){
+        display.print(">");
+        display.print(predefNames[idx].substring(0, 17));
+      } else {
+        display.print(" ");
+        display.print(predefNames[idx].substring(0, 17));
+      }
+    }
+    display.setCursor(0, 54);
+    display.print("SEL:Load | 2s:Exit");
+    display.display();
+    return;
+  }
+  
+  // 🔥 Основной экран
+  display.setTextColor(SH110X_WHITE, SH110X_BLACK);
+  display.println("FURNACE PRO v0.7");
+  display.print("T:"); display.print(input,1); display.print("C     SP:"); display.println(setpoint,1);
+  
+  if(programRunning && activeStepCount > 0 && currentStepIdx < activeStepCount){
+    // ⏱️ Расчет прогресса текущего шага
+    unsigned long elapsed = millis() - stepStartTime;
+    unsigned long durationMs = (unsigned long)activeSteps[currentStepIdx].duration_min * 60000UL;
+    int progress = (elapsed >= durationMs) ? 100 : (int)((elapsed * 100UL) / durationMs);
+    int remainSec = max(0L, (long)((durationMs - elapsed) / 1000UL));
+    int remainMin = remainSec / 60;
+    int remainSecPart = remainSec % 60;
+    
+    // Строка статуса шага
+    display.print("Step "); display.print(currentStepIdx+1); 
+    display.print("/"); display.print(activeStepCount);
+    display.print(" -> "); display.print(activeSteps[currentStepIdx].temp,0); display.println("C");
+    display.print("["); display.print(progress); display.print("%]");
+    
+    // Целевая температура и оставшееся время
+    //display.print("->"); display.print(activeSteps[currentStepIdx].temp,0); display.print("C");
+    if(progress >= 100) display.println("DONE   ");
+    else {
+      display.print(" Rem:"); 
+      if(remainMin > 0) { display.print(remainMin); display.print("m "); }
+      display.print(remainSecPart); display.println("s  ");
+    }
+    
+    // 📊 Прогресс-бар (вместо графика)
+    display.drawRect(2, 54, 124, 10, SH110X_WHITE);  // Рамка
+    if(progress > 0){
+      int barWidth = map(progress, 0, 100, 0, 120);
+      display.fillRect(3, 55, barWidth, 8, SH110X_WHITE);  // Заполнение
+    }
+    // Деления каждые 25%
+    for(int i=1; i<4; i++) display.drawFastVLine(2 + i*31, 54, 10, SH110X_WHITE);
+    
+  } else {
+    // Не запущена программа
+    display.print("Mode:"); display.println(heatingEnabled ? "MANUAL" : "STANDBY");
+    //if(programLoaded && !programRunning) display.println("Program: loaded");
+  }
+  
+  // Статус PID и SSR
+  display.print("PID:"); display.print(output/255.0*100,0); 
+  display.print("% | SSR:"); display.println(digitalRead(SSR_PIN) ? "ON" : "OFF");
+  display.println(isApMode ? "AP:192.168.4.1" : "STA:"+WiFi.localIP().toString());
+  
+  // 📈 График температуры (компактный, 4 пикселя высотой)
+  // Оставили узкую полоску графика над прогресс-баром для наглядности
+  /*if(!programRunning){
+    display.drawFastHLine(0, 56, 128, SH110X_WHITE);
+    for(int i=0; i<GRAPH_POINTS; i+=4){
+      float t = tempHistory[(historyIdx+i) % GRAPH_POINTS];
+      int y = 62 - map(constrain((int)t, 0, (int)MAX_TEMP_LIMIT), 0, (int)MAX_TEMP_LIMIT, 0, 6);
+      display.drawPixel(i/4, y, SH110X_WHITE);
+    }
+  }*/
+  
   display.display();
 }

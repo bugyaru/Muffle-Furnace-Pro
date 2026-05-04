@@ -127,23 +127,47 @@
 
   // ===== ГЕНЕРАЦИЯ ЦЕЛЕВОЙ КРИВОЙ =====
   function generateTarget() {
-    if (!programSteps.length) { targetData = []; timeLabels = []; return; }
-    targetData = []; timeLabels = [];
+    if (!programSteps.length) {
+      targetData = [];
+      timeLabels = [];
+      return;
+    }
+
+    targetData = [];
+    timeLabels = [];
     let totalSec = 0;
+
+    // Считаем общую длительность программы
     programSteps.forEach(s => totalSec += s.duration_min * 60);
-    let ct = 0, si = 0, ss = 0, pt = programSteps[0]?.temp || 25;
+
+    let ct = 0;  // current time
+    let si = 0;  // step index
+    let ss = 0;  // step start time
+    let pt = 25; // previous temp
+
     for (let i = 0; i <= Math.ceil(totalSec / resolutionSec); i++) {
-      ct = i * resolutionSec; timeLabels.push((ct/60).toFixed(1));
+      ct = i * resolutionSec;
+      timeLabels.push((ct/60).toFixed(1));  // минуты
+
+      // Находим текущий шаг
       while (si < programSteps.length && ct >= ss + programSteps[si].duration_min * 60) {
-        ss += programSteps[si].duration_min * 60; pt = programSteps[si].temp; si++;
+        ss += programSteps[si].duration_min * 60;
+        pt = programSteps[si].temp;
+        si++;
       }
-      if (si >= programSteps.length) { targetData.push(pt); continue; }
+
+      // Если шаги закончились — держим последнюю температуру
+      if (si >= programSteps.length) {
+        targetData.push(pt);
+        continue;
+      }
+
+      // Интерполяция внутри шага
       let dur = programSteps[si].duration_min * 60;
       let prog = Math.min(1, Math.max(0, (ct - ss) / dur));
       targetData.push(pt + (programSteps[si].temp - pt) * prog);
     }
   }
-
   // ✅ ИНИЦИАЛИЗАЦИЯ ГРАФИКА (Синтаксис 100% исправлен)
   function initChart() {
     const ctx = document.getElementById('tempChart').getContext('2d');
@@ -228,7 +252,9 @@
     document.getElementById('temp').textContent = d.temp.toFixed(1);
     document.getElementById('setpoint').textContent = d.setpoint.toFixed(1) + '°C';
     document.getElementById('output').textContent = d.output.toFixed(0) + '%';
-    const ssrEl = document.getElementById('ssr'); ssrEl.textContent = d.ssr ? 'ON' : 'OFF'; ssrEl.className = d.ssr ? 'status-on' : 'status-off';
+    const ssrEl = document.getElementById('ssr');
+    ssrEl.textContent = d.ssr ? 'ON' : 'OFF';
+    ssrEl.className = d.ssr ? 'status-on' : 'status-off';
     document.getElementById('mode').textContent = d.mode;
 
     const isProgram = d.mode === "PROGRAM" && d.programLoaded;
@@ -237,50 +263,90 @@
 
     if (isStop) { clearGraph(); return; }
 
+    // 🔥 ИСПРАВЛЕНИЕ: Единая временная шкала для всех режимов
     if (isProgram) {
-      manualStartTime = 0; lastManualUpdate = 0;
-      if (targetData.length === 0 || d.elapsedSec < 2) {
-        programSteps = d.stepsData; generateTarget();
-        actualData = Array(targetData.length).fill(null); setpointData = Array(targetData.length).fill(null);
+      // Режим программы: используем elapsedSec от контроллера
+      if (targetData.length === 0 || d.elapsedSec < 2 || programSteps.length !== d.stepsData?.length) {
+        programSteps = d.stepsData || [];
+        generateTarget();
+        // Инициализируем массивы нужной длины
+        actualData = new Array(targetData.length).fill(null);
+        setpointData = new Array(targetData.length).fill(null);
       }
+
       if (d.elapsedSec >= 0 && targetData.length > 0) {
         const idx = Math.min(Math.floor(d.elapsedSec / resolutionSec), targetData.length - 1);
-        if (idx >= 0 && idx < actualData.length) { actualData[idx] = d.temp; setpointData[idx] = d.setpoint; }
+        if (idx >= 0 && idx < actualData.length) {
+          actualData[idx] = d.temp;
+          setpointData[idx] = d.setpoint;
+        }
+
+        // Прогресс шага
         if (d.currentStep >= 0 && d.currentStep < programSteps.length) {
-          let sStart = 0; for(let i=0; i<d.currentStep; i++) sStart += programSteps[i].duration_min * 60;
+          let sStart = 0;
+          for(let i=0; i<d.currentStep; i++) sStart += programSteps[i].duration_min * 60;
           const dur = programSteps[d.currentStep].duration_min * 60;
           let prog = Math.max(0, Math.min(100, ((d.elapsedSec - sStart) / dur) * 100));
-          document.getElementById('progress').textContent = Math.round(prog) + '%'; document.getElementById('progressBar').style.width = prog + '%';
+          document.getElementById('progress').textContent = Math.round(prog) + '%';
+          document.getElementById('progressBar').style.width = prog + '%';
         }
         document.getElementById('step').textContent = (d.currentStep+1) + ' / ' + d.programSteps;
       }
+
     } else if (isManual) {
-      if (programSteps.length > 0) clearGraph();
+      // 🔥 Ручной режим: используем ту же логику, что и программа
       if (manualStartTime === 0) {
         manualStartTime = Date.now();
-        actualData = []; targetData = []; setpointData = []; timeLabels = [];
+        actualData = [];
+        targetData = [];
+        setpointData = [];
+        timeLabels = [];
+        lastManualUpdate = manualStartTime;
       }
+
       const now = Date.now();
-      if (now - lastManualUpdate >= 10000) {
-        const elapsedSec = (now - manualStartTime) / 1000;
-        actualData.push(d.temp); targetData.push(d.setpoint); setpointData.push(d.setpoint); timeLabels.push((elapsedSec / 60).toFixed(1));
+      const elapsedSec = (now - manualStartTime) / 1000;
+
+      // Добавляем точку каждые resolutionSec секунд
+      if (now - lastManualUpdate >= resolutionSec * 1000) {
+        const timeMin = (elapsedSec / 60).toFixed(1);
+        timeLabels.push(timeMin);
+        actualData.push(d.temp);
+        targetData.push(d.setpoint);  // 🔥 Цель = setpoint в ручном режиме
+        setpointData.push(d.setpoint);
         lastManualUpdate = now;
+
+        // Ограничиваем количество точек (последние 60 минут)
+        const maxPoints = 360; // 60 мин * 6 точек/мин (при resolutionSec=10)
+        if (actualData.length > maxPoints) {
+          actualData.shift();
+          targetData.shift();
+          setpointData.shift();
+          timeLabels.shift();
+        }
       } else {
-        if (actualData.length > 0) actualData[actualData.length - 1] = d.temp;
+        // Обновляем последнюю точку
+        if (actualData.length > 0) {
+          actualData[actualData.length - 1] = d.temp;
+          setpointData[setpointData.length - 1] = d.setpoint;
+        }
       }
-      document.getElementById('progress').textContent = '-'; document.getElementById('progressBar').style.width = '0%';
+
+      document.getElementById('progress').textContent = '-';
+      document.getElementById('progressBar').style.width = '0%';
       document.getElementById('step').textContent = 'MANUAL';
     }
 
+    // 🔥 Обновляем график с едиными метками времени
     if (chart) {
-      chart.data.labels = [...timeLabels];
+      chart.data.labels = isProgram ? timeLabels : timeLabels;
       chart.data.datasets[0].data = [...actualData];
       chart.data.datasets[1].data = [...targetData];
       chart.data.datasets[2].data = [...setpointData];
       chart.update('none');
     }
   }
-
+  
   function resetZoom() { if(chart) chart.resetZoom(); }
   function closeModal() { document.getElementById('modal').style.display='none'; }
   function openAddModal() { document.getElementById('mTitle').innerText='Добавить'; document.getElementById('pId').value='-1'; document.getElementById('pName').value=''; document.getElementById('pPrg').value=''; document.getElementById('modal').style.display='flex'; }
